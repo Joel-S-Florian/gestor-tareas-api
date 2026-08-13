@@ -114,6 +114,10 @@ builder.Services.AddHealthChecks();
 
 var app = builder.Build();
 
+// ---------- Swagger con soporte JWT (botón Authorize) ----------
+app.UseSwagger();
+app.UseSwaggerUI();
+
 // ---------- Migraciones + seed automáticos en Development ----------
 if (app.Environment.IsDevelopment())
 {
@@ -121,9 +125,6 @@ if (app.Environment.IsDevelopment())
     var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
     db.Database.Migrate();
     SeedData.Seed(db);
-
-    app.UseSwagger();
-    app.UseSwaggerUI();
 }
 
 app.UseMiddleware<ExceptionMiddleware>();
