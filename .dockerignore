@@ -1,0 +1,15 @@
+# Excluir carpetas de desarrollo y build local
+bin/
+obj/
+.vs/
+.git/
+.gitignore
+
+# Excluir archivos de configuración local
+appsettings.Development.json
+appsettings.Local.json
+.env
+
+# Excluir documentación o logs
+*.log
+*.md
