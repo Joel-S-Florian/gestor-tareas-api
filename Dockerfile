@@ -17,6 +17,7 @@ COPY --from=build /app/publish .
 
 # Expose port 8080 (Render's default for internal traffic)
 ENV ASPNETCORE_URLS=http://+:8080
+ENV ASPNETCORE_ENVIRONMENT=Production
 EXPOSE 8080
 
 ENTRYPOINT ["dotnet", "GestorTareas.Api.dll"]
