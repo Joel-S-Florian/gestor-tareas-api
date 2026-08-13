@@ -1,0 +1,15 @@
+## .gitignore for ASP.NET Core / Visual Studio
+[Bb]in/
+[Oo]bj/
+.vs/
+.vscode/
+*.user
+*.userosscache
+*.sln.docstates
+*.db
+*.ldf
+*.mdf
+appsettings.Development.json
+appsettings.Local.json
+.env
+/Uploads/
