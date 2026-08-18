@@ -70,13 +70,12 @@ builder.Services.AddAuthentication(options =>
 builder.Services.AddAuthorization();
 
 // ---------- CORS ----------
-// En producción, reemplaza la URL por la del SPA desplegado (Vercel/Netlify).
-var spaOrigin = builder.Configuration["SpaOrigin"] ?? "http://localhost:5173";
+var allowedOrigins = Environment.GetEnvironmentVariable("CORS_ORIGINS")?.Split(',') ?? new[] { "http://localhost:5173" };
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("SpaPolicy", policy =>
     {
-        policy.WithOrigins(spaOrigin)
+        policy.WithOrigins(allowedOrigins)
               .AllowAnyHeader()
               .AllowAnyMethod();
     });
