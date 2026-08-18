@@ -114,6 +114,17 @@ builder.Services.AddHealthChecks();
 
 var app = builder.Build();
 
+// Aplicar migraciones si la variable está activa
+var runMigrations = Environment.GetEnvironmentVariable("RUN_MIGRATIONS");
+if (runMigrations == "true")
+{
+    using (var scope = app.Services.CreateScope())
+    {
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        db.Database.Migrate();
+    }
+}
+
 // ---------- Swagger con soporte JWT (botón Authorize) ----------
 app.UseSwagger();
 app.UseSwaggerUI();
