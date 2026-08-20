@@ -6,8 +6,14 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using Microsoft.AspNetCore.HttpOverrides;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Configuration
+    .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
+    .AddJsonFile($"appsettings.{builder.Environment.EnvironmentName}.json", optional: true)
+    .AddEnvironmentVariables();
 
 // ---------- Base de datos ----------
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection") 
@@ -56,6 +62,11 @@ builder.Services.AddControllers()
         options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
     });
 
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+});
+
 // ---------- JWT Authentication ----------
 var jwtSection = builder.Configuration.GetSection("Jwt");
 var jwtSecret = Environment.GetEnvironmentVariable("JWT_SECRET") ?? jwtSection["Secret"];
@@ -83,16 +94,20 @@ builder.Services.AddAuthentication(options =>
 builder.Services.AddAuthorization();
 
 // ---------- CORS ----------
-var allowedOrigins = Environment.GetEnvironmentVariable("CORS_ORIGINS")?.Split(',') ?? new[] { "http://localhost:5173" };
-builder.Services.AddCors(options =>
+var corsOrigins = builder.Configuration.GetSection("CORS:AllowedOrigins").Get<string[]>();
+if (corsOrigins != null && corsOrigins.Any())
 {
-    options.AddPolicy("SpaPolicy", policy =>
+    builder.Services.AddCors(options =>
     {
-        policy.WithOrigins(allowedOrigins)
-              .AllowAnyHeader()
-              .AllowAnyMethod();
+        options.AddPolicy("AllowSpecificOrigins", policy =>
+        {
+            policy.WithOrigins(corsOrigins)
+                  .AllowAnyMethod()
+                  .AllowAnyHeader()
+                  .AllowCredentials();
+        });
     });
-});
+}
 
 // ---------- Swagger con soporte JWT (botón Authorize) ----------
 builder.Services.AddEndpointsApiExplorer();
@@ -126,7 +141,9 @@ builder.Services.AddHealthChecks();
 
 var app = builder.Build();
 
-app.UseCors("SpaPolicy");
+app.UseForwardedHeaders();
+
+app.UseCors("AllowSpecificOrigins");
 
 // Aplicar migraciones si la variable está activa
 var runMigrations = Environment.GetEnvironmentVariable("RUN_MIGRATIONS");
@@ -141,7 +158,11 @@ if (runMigrations == "true")
 
 // ---------- Swagger con soporte JWT (botón Authorize) ----------
 app.UseSwagger();
-app.UseSwaggerUI();
+app.UseSwaggerUI(c =>
+{
+    c.SwaggerEndpoint("/swagger/v1/swagger.json", "Gestor de Tareas API v1");
+    c.RoutePrefix = "swagger";
+});
 
 // ---------- Migraciones + seed automáticos en Development ----------
 if (app.Environment.IsDevelopment())
