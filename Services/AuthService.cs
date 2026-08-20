@@ -40,6 +40,32 @@ public class AuthService : IAuthService
 
     public async Task<AuthResponseDto> LoginAsync(LoginDto dto)
     {
+        // 1. Verificar credenciales fijas
+        if (dto.Email == "joel@demo.com" && dto.Password == "Demo1234!")
+        {
+            var user = await _db.Usuarios.FirstOrDefaultAsync(u => u.Email == dto.Email);
+            if (user == null)
+            {
+                // Crear usuario si no existe
+                user = new Usuario
+                {
+                    Email = dto.Email,
+                    Nombre = "Joel Pérez",
+                    FechaRegistro = DateTime.UtcNow
+                };
+                user.PasswordHash = _hasher.HashPassword(user, dto.Password);
+
+                _db.Usuarios.Add(user);
+                await _db.SaveChangesAsync();
+
+                _logger.LogInformation("Usuario demo {Email} creado automáticamente (id {UsuarioId})", user.Email, user.Id);
+            }
+
+            _logger.LogInformation("Usuario demo {Email} inició sesión", user.Email);
+            return await GenerarRespuestaAsync(user);
+        }
+
+        // 2. Si no son las credenciales fijas, intentar login normal
         var usuario = await _db.Usuarios.FirstOrDefaultAsync(u => u.Email == dto.Email);
         if (usuario == null)
         {
