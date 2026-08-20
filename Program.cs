@@ -21,6 +21,9 @@ if (!string.IsNullOrEmpty(connectionString) && connectionString.StartsWith("post
     connectionString = $"Host={uri.Host};Port={uri.Port};Username={userInfo[0]};Password={userInfo[1]};Database={uri.LocalPath.TrimStart('/')};Pooling=true;SSL Mode=Require;Trust Server Certificate=True;";
 }
 
+// Guardar la cadena convertida en la configuración para que todos los componentes la usen
+builder.Configuration["ConnectionStrings:DefaultConnection"] = connectionString;
+
 var dbProvider = builder.Configuration["DB_PROVIDER"] ?? "SQLSERVER";
 
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
