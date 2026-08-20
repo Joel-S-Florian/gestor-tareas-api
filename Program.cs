@@ -16,10 +16,14 @@ builder.Configuration
     .AddEnvironmentVariables();
 
 // ---------- Base de datos ----------
+var logger = builder.Services.BuildServiceProvider().GetRequiredService<ILogger<Program>>();
+
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection") 
     ?? Environment.GetEnvironmentVariable("ConnectionStrings__DefaultConnection");
 
-// Convertir postgres:// a formato Key-Value SIEMPRE para compatibilidad con Npgsql
+// Log para debug
+logger.LogInformation("Connection String detected: {conn}", connectionString?.Substring(0, Math.Min(connectionString.Length, 20)) + "...");
+
 if (!string.IsNullOrEmpty(connectionString) && connectionString.StartsWith("postgres://"))
 {
     var uri = new Uri(connectionString);
@@ -27,20 +31,19 @@ if (!string.IsNullOrEmpty(connectionString) && connectionString.StartsWith("post
     connectionString = $"Host={uri.Host};Port={uri.Port};Username={userInfo[0]};Password={userInfo[1]};Database={uri.LocalPath.TrimStart('/')};Pooling=true;SSL Mode=Require;Trust Server Certificate=True;";
 }
 
-// Guardar la cadena convertida en la configuración para que todos los componentes la usen
-builder.Configuration["ConnectionStrings:DefaultConnection"] = connectionString;
-
-var dbProvider = builder.Configuration["DB_PROVIDER"] ?? "SQLSERVER";
+var dbProvider = builder.Configuration["DB_PROVIDER"] ?? "POSTGRES"; // Default a POSTGRES para seguridad
+logger.LogInformation("DB_PROVIDER configured as: {provider}", dbProvider);
 
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
 {
-    if (dbProvider == "POSTGRES")
+    if (dbProvider.Equals("POSTGRES", StringComparison.OrdinalIgnoreCase))
     {
         options.UseNpgsql(connectionString);
     }
     else
     {
-        options.UseSqlServer(connectionString);
+        // Lanzar error si no está configurado para Postgres en producción
+        throw new InvalidOperationException("DB_PROVIDER must be POSTGRES in production environment.");
     }
 });
 
