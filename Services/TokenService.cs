@@ -19,7 +19,8 @@ public class TokenService : ITokenService
     public (string token, DateTime expira) GenerarAccessToken(Usuario usuario)
     {
         var jwtSection = _config.GetSection("Jwt");
-        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSection["Secret"]!));
+        var jwtSecret = Environment.GetEnvironmentVariable("JWT_SECRET") ?? jwtSection["Secret"];
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret!));
         var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
         var minutos = int.Parse(jwtSection["AccessTokenMinutos"] ?? "15");
