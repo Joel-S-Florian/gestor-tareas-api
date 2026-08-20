@@ -1,12 +1,15 @@
 services:
   - type: web
     name: gestor-tareas-api
-    runtime: dotnet
+    runtime: docker
     repo: https://github.com/Joel-S-Florian/gestor-tareas-api
     plan: free
+    healthCheckPath: /health
     envVars:
       - key: ASPNETCORE_ENVIRONMENT
         value: Production
+      - key: DB_PROVIDER
+        value: POSTGRES
       - key: ConnectionStrings__DefaultConnection
         sync: false
       - key: JWT__Secret
@@ -17,5 +20,3 @@ services:
         value: gestor-tareas-spa
       - key: CORS__AllowedOrigins
         sync: false
-    buildCommand: dotnet restore && dotnet publish -c Release -o out
-    startCommand: dotnet out/gestor-tareas-api.dll
