@@ -113,6 +113,8 @@ builder.Services.AddHealthChecks();
 
 var app = builder.Build();
 
+app.UseCors("SpaPolicy");
+
 // Aplicar migraciones si la variable está activa
 var runMigrations = Environment.GetEnvironmentVariable("RUN_MIGRATIONS");
 if (runMigrations == "true")
@@ -140,7 +142,6 @@ if (app.Environment.IsDevelopment())
 app.UseMiddleware<ExceptionMiddleware>();
 
 app.UseHttpsRedirection();
-app.UseCors("SpaPolicy");
 
 app.UseAuthentication();
 app.UseAuthorization();
