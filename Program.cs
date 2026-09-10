@@ -31,7 +31,10 @@ if (!string.IsNullOrEmpty(connectionString) && connectionString.StartsWith("post
     connectionString = $"Host={uri.Host};Port={uri.Port};Username={userInfo[0]};Password={userInfo[1]};Database={uri.LocalPath.TrimStart('/')};Pooling=true;SSL Mode=Require;Trust Server Certificate=True;";
 }
 
-var dbProvider = builder.Configuration["DB_PROVIDER"] ?? "POSTGRES"; // Default a POSTGRES para seguridad
+// Fallback inteligente: si no hay variable de entorno, detecta LocalDB automáticamente
+var dbProvider = builder.Configuration["DB_PROVIDER"] 
+    ?? (connectionString?.Contains("(localdb)", StringComparison.OrdinalIgnoreCase) == true ? "SQLSERVER" : "POSTGRES");
+
 logger.LogInformation("DB_PROVIDER configured as: {provider}", dbProvider);
 
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
@@ -40,10 +43,13 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
     {
         options.UseNpgsql(connectionString);
     }
+    else if (dbProvider.Equals("SQLSERVER", StringComparison.OrdinalIgnoreCase))
+    {
+        options.UseSqlServer(connectionString);
+    }
     else
     {
-        // Lanzar error si no está configurado para Postgres en producción
-        throw new InvalidOperationException("DB_PROVIDER must be POSTGRES in production environment.");
+        throw new InvalidOperationException($"DB_PROVIDER '{dbProvider}' is not supported. Use POSTGRES or SQLSERVER.");
     }
 });
 
@@ -57,8 +63,6 @@ builder.Services.AddScoped<IAdjuntoService, AdjuntoService>();
 builder.Services.AddAutoMapper(AppDomain.CurrentDomain.GetAssemblies());
 
 // ---------- Controllers ----------
-// Los enums se serializan como strings ("ToDo", "Owner", "Media") para que el
-// cliente React los consuma de forma legible y no dependa de valores numéricos.
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
@@ -73,6 +77,13 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 // ---------- JWT Authentication ----------
 var jwtSection = builder.Configuration.GetSection("Jwt");
 var jwtSecret = Environment.GetEnvironmentVariable("JWT_SECRET") ?? jwtSection["Secret"];
+
+// Validación defensiva: garantiza mínimo 32 bytes (256 bits) para HMAC-SHA256
+if (string.IsNullOrWhiteSpace(jwtSecret) || Encoding.UTF8.GetBytes(jwtSecret).Length < 32)
+{
+    jwtSecret = "DESARROLLO_SECRET_KEY_CON_MAS_DE_32_CARACTERES_123456789";
+    logger.LogWarning("JWT Secret inválido o ausente. Usando clave de desarrollo por defecto.");
+}
 
 builder.Services.AddAuthentication(options =>
 {
@@ -89,7 +100,7 @@ builder.Services.AddAuthentication(options =>
         ValidateIssuerSigningKey = true,
         ValidIssuer = jwtSection["Issuer"],
         ValidAudience = jwtSection["Audience"],
-        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret!)),
+        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret)),
         ClockSkew = TimeSpan.FromSeconds(30)
     };
 });
@@ -97,20 +108,19 @@ builder.Services.AddAuthentication(options =>
 builder.Services.AddAuthorization();
 
 // ---------- CORS ----------
-var corsOrigins = builder.Configuration.GetSection("CORS:AllowedOrigins").Get<string[]>();
-if (corsOrigins != null && corsOrigins.Any())
+var corsOrigins = builder.Configuration.GetSection("CORS:AllowedOrigins").Get<string[]>()
+    ?? new[] { builder.Configuration["SpaOrigin"] ?? "http://localhost:5173" };
+
+builder.Services.AddCors(options =>
 {
-    builder.Services.AddCors(options =>
+    options.AddPolicy("AllowSpecificOrigins", policy =>
     {
-        options.AddPolicy("AllowSpecificOrigins", policy =>
-        {
-            policy.WithOrigins(corsOrigins)
-                  .AllowAnyMethod()
-                  .AllowAnyHeader()
-                  .AllowCredentials();
-        });
+        policy.WithOrigins(corsOrigins)
+              .AllowAnyMethod()
+              .AllowAnyHeader()
+              .AllowCredentials();
     });
-}
+});
 
 // ---------- Swagger con soporte JWT (botón Authorize) ----------
 builder.Services.AddEndpointsApiExplorer();
@@ -145,10 +155,9 @@ builder.Services.AddHealthChecks();
 var app = builder.Build();
 
 app.UseForwardedHeaders();
-
 app.UseCors("AllowSpecificOrigins");
 
-// Aplicar migraciones si la variable está activa
+// Aplicar migraciones si la variable está activa (para producción en Render)
 var runMigrations = Environment.GetEnvironmentVariable("RUN_MIGRATIONS");
 if (runMigrations == "true")
 {
@@ -159,7 +168,7 @@ if (runMigrations == "true")
     }
 }
 
-// ---------- Swagger con soporte JWT (botón Authorize) ----------
+// ---------- Swagger ----------
 app.UseSwagger();
 app.UseSwaggerUI(c =>
 {
@@ -177,9 +186,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseMiddleware<ExceptionMiddleware>();
-
 app.UseHttpsRedirection();
-
 app.UseAuthentication();
 app.UseAuthorization();
 
