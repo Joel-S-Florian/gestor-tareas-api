@@ -57,10 +57,12 @@ tareas tipo Kanban, comentarios, adjuntos y colaboración entre usuarios.
 
 ## Usuarios de prueba (seed)
 
-| Email | Password | Rol |
-|---|---|---|
-| joel@demo.com | Demo1234! | Owner del proyecto "Proyecto Capstone" |
-| ana@demo.com | Demo1234! | Miembro (Editor) del proyecto "Proyecto Capstone" |
+| Email | Password | Rol en Proyectos |
+| --- | --- | --- |
+| demo@demo.com | demo123 | Owner (Rediseño Web), Editor (App Móvil), Viewer (Marketing Q3) |
+| ana@demo.com | ana123 | Owner (App Móvil), Editor (Rediseño Web) |
+| luis@demo.com | luis123 | Owner (Marketing Q3), Viewer (Rediseño Web) |
+| joel@demo.com | joel123 | Editor (Rediseño Web, App Móvil), Viewer (Marketing Q3) |
 
 ## Cómo ejecutarlo localmente
 
