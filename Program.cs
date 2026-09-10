@@ -177,12 +177,37 @@ app.UseSwaggerUI(c =>
 });
 
 // ---------- Migraciones + seed automáticos en Development ----------
+// ---------- Migraciones + seed automáticos en Development ----------
 if (app.Environment.IsDevelopment())
 {
     using var scope = app.Services.CreateScope();
-    var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-    db.Database.Migrate();
-    SeedData.Seed(db);
+    var services = scope.ServiceProvider;
+    var db = services.GetRequiredService<ApplicationDbContext>();
+    var seedLogger = services.GetRequiredService<ILogger<Program>>();
+    
+    try
+    {
+        seedLogger.LogInformation("Aplicando migraciones...");
+        Console.WriteLine("[SEED-HOST] Aplicando migraciones...");
+        db.Database.Migrate();
+        
+        seedLogger.LogInformation("Migraciones aplicadas. Ejecutando seed...");
+        Console.WriteLine("[SEED-HOST] Migraciones aplicadas. Ejecutando SeedData.Seed()...");
+        
+        SeedData.Seed(db);
+        
+        seedLogger.LogInformation("Seed completado correctamente.");
+        Console.WriteLine("[SEED-HOST] Seed completado correctamente.");
+    }
+    catch (Exception ex)
+    {
+        seedLogger.LogError(ex, "Error crítico al aplicar migraciones/seed");
+        Console.WriteLine($"[SEED-HOST ERROR] {ex.GetType().Name}: {ex.Message}");
+        Console.WriteLine(ex.StackTrace);
+        if (ex.InnerException != null)
+            Console.WriteLine($"[SEED-HOST ERROR INNER] {ex.InnerException.GetType().Name}: {ex.InnerException.Message}");
+        throw;
+    }
 }
 
 app.UseMiddleware<ExceptionMiddleware>();
