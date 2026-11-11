@@ -46,11 +46,24 @@ public class TareaFiltroDto
     public PrioridadTarea? Prioridad { get; set; }
     public int? AsignadoAId { get; set; }
 
+    // Solo tareas con fecha de vencimiento pasada que no están en Hecho.
+    public bool Vencidas { get; set; }
+
     [Range(1, int.MaxValue)]
     public int Page { get; set; } = 1;
 
     [Range(1, 100)]
     public int PageSize { get; set; } = 20;
+}
+
+public class MoverTareaDto
+{
+    [Required]
+    public EstadoTarea Estado { get; set; }
+
+    // Posición (desde 0) dentro de la columna de destino.
+    [Range(0, 10000)]
+    public int Posicion { get; set; }
 }
 
 public class TareaDto

@@ -10,5 +10,6 @@ public interface ITareaService
     Task<TareaDto> CrearAsync(int proyectoId, CrearTareaDto dto, int usuarioId);
     Task<TareaDto> ActualizarAsync(int tareaId, ActualizarTareaDto dto, int usuarioId);
     Task<TareaDto> CambiarEstadoAsync(int tareaId, CambiarEstadoTareaDto dto, int usuarioId);
+    Task<TareaDto> MoverAsync(int tareaId, MoverTareaDto dto, int usuarioId);
     Task EliminarAsync(int tareaId, int usuarioId);
 }

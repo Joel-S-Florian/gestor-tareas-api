@@ -107,6 +107,40 @@ namespace GestorTareas.Api.Migrations
                     b.ToTable("MiembrosProyecto");
                 });
 
+            modelBuilder.Entity("GestorTareas.Api.Models.Notificacion", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("Fecha")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("Leida")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Mensaje")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int?>("ProyectoId")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("TareaId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("UsuarioId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UsuarioId", "Leida");
+
+                    b.ToTable("Notificaciones");
+                });
+
             modelBuilder.Entity("GestorTareas.Api.Models.Proyecto", b =>
                 {
                     b.Property<int>("Id")
@@ -193,6 +227,9 @@ namespace GestorTareas.Api.Migrations
 
                     b.Property<DateTime?>("FechaVencimiento")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Orden")
+                        .HasColumnType("integer");
 
                     b.Property<int>("Prioridad")
                         .HasColumnType("integer");
@@ -292,6 +329,17 @@ namespace GestorTareas.Api.Migrations
                         .IsRequired();
 
                     b.Navigation("Proyecto");
+
+                    b.Navigation("Usuario");
+                });
+
+            modelBuilder.Entity("GestorTareas.Api.Models.Notificacion", b =>
+                {
+                    b.HasOne("GestorTareas.Api.Models.Usuario", "Usuario")
+                        .WithMany()
+                        .HasForeignKey("UsuarioId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
 
                     b.Navigation("Usuario");
                 });

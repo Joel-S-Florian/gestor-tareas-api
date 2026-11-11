@@ -14,6 +14,7 @@ public class ApplicationDbContext : DbContext
     public DbSet<Comentario> Comentarios => Set<Comentario>();
     public DbSet<Adjunto> Adjuntos => Set<Adjunto>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+    public DbSet<Notificacion> Notificaciones => Set<Notificacion>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -94,6 +95,12 @@ public class ApplicationDbContext : DbContext
                 .WithMany(t => t.Adjuntos)
                 .HasForeignKey(a => a.TareaId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Notificacion>(e =>
+        {
+            e.HasIndex(n => new { n.UsuarioId, n.Leida });
+            e.HasOne(n => n.Usuario).WithMany().HasForeignKey(n => n.UsuarioId).OnDelete(DeleteBehavior.Cascade);
         });
 
         // RefreshToken

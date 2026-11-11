@@ -36,12 +36,18 @@ public class TareaService : ITareaService
         if (filtro.AsignadoAId.HasValue)
             query = query.Where(t => t.AsignadoAId == filtro.AsignadoAId.Value);
 
+        if (filtro.Vencidas)
+        {
+            var ahora = DateTime.UtcNow;
+            query = query.Where(t => t.FechaVencimiento < ahora && t.Estado != EstadoTarea.Done);
+        }
+
         var totalItems = await query.CountAsync();
 
         // Proyección directa: una consulta, sin cargar entidades ni duplicar filas por los Include.
         var items = await query
             .OrderBy(t => t.Estado)
-            .ThenByDescending(t => t.Prioridad)
+            .ThenBy(t => t.Orden)
             .ThenBy(t => t.Id)
             .Skip((filtro.Page - 1) * filtro.PageSize)
             .Take(filtro.PageSize)
@@ -100,10 +106,12 @@ public class TareaService : ITareaService
             FechaVencimiento = dto.FechaVencimiento,
             AsignadoAId = dto.AsignadoAId,
             ProyectoId = proyectoId,
-            Estado = EstadoTarea.ToDo
+            Estado = EstadoTarea.ToDo,
+            Orden = await SiguienteOrdenAsync(proyectoId, EstadoTarea.ToDo)
         };
 
         _db.Tareas.Add(tarea);
+        await AvisarAsignacionAsync(tarea, null, usuarioId);
         await _db.SaveChangesAsync();
 
         _logger.LogInformation("Tarea {TareaId} ({Titulo}) creada en el proyecto {ProyectoId} por {UsuarioId}",
@@ -127,7 +135,9 @@ public class TareaService : ITareaService
         tarea.Descripcion = dto.Descripcion;
         tarea.Prioridad = dto.Prioridad;
         tarea.FechaVencimiento = dto.FechaVencimiento;
+        var asignadoAnterior = tarea.AsignadoAId;
         tarea.AsignadoAId = dto.AsignadoAId;
+        await AvisarAsignacionAsync(tarea, asignadoAnterior, usuarioId);
 
         await _db.SaveChangesAsync();
         _logger.LogInformation("Tarea {TareaId} actualizada por {UsuarioId}", tarea.Id, usuarioId);
@@ -142,12 +152,36 @@ public class TareaService : ITareaService
         var rol = await _proyectoService.ObtenerRolEnProyectoAsync(tarea.ProyectoId, usuarioId);
         RequerirEdicion(rol);
 
+        if (tarea.Estado != dto.Estado)
+            tarea.Orden = await SiguienteOrdenAsync(tarea.ProyectoId, dto.Estado); // al final de la columna nueva
         tarea.Estado = dto.Estado;
         await _db.SaveChangesAsync();
 
         _logger.LogInformation("Tarea {TareaId} cambió a estado {Estado} por {UsuarioId}", tarea.Id, dto.Estado, usuarioId);
 
         return await ObtenerPorIdAsync(tarea.Id, usuarioId);
+    }
+
+    public async Task<TareaDto> MoverAsync(int tareaId, MoverTareaDto dto, int usuarioId)
+    {
+        var tarea = await _db.Tareas.FindAsync(tareaId)
+            ?? throw new NotFoundException("Tarea no encontrada.");
+
+        var rol = await _proyectoService.ObtenerRolEnProyectoAsync(tarea.ProyectoId, usuarioId);
+        RequerirEdicion(rol);
+
+        // Se reescribe el orden de la columna de destino completa: simple y sin huecos ni empates.
+        var columna = await _db.Tareas
+            .Where(t => t.ProyectoId == tarea.ProyectoId && t.Estado == dto.Estado && t.Id != tareaId)
+            .OrderBy(t => t.Orden).ThenBy(t => t.Id)
+            .ToListAsync();
+
+        columna.Insert(Math.Min(dto.Posicion, columna.Count), tarea);
+        tarea.Estado = dto.Estado;
+        for (var i = 0; i < columna.Count; i++) columna[i].Orden = i;
+
+        await _db.SaveChangesAsync();
+        return await ObtenerPorIdAsync(tareaId, usuarioId);
     }
 
     public async Task EliminarAsync(int tareaId, int usuarioId)
@@ -170,6 +204,24 @@ public class TareaService : ITareaService
 
         if (!esMiembro)
             throw new ConflictException("Solo puedes asignar la tarea a un miembro del proyecto.");
+    }
+
+    private async Task<int> SiguienteOrdenAsync(int proyectoId, EstadoTarea estado) =>
+        (await _db.Tareas.Where(t => t.ProyectoId == proyectoId && t.Estado == estado).MaxAsync(t => (int?)t.Orden) ?? -1) + 1;
+
+    // Aviso dentro de la app a quien recibe la tarea (no a quien se la asigna a sí mismo).
+    private async Task AvisarAsignacionAsync(Tarea tarea, int? asignadoAnterior, int actorId)
+    {
+        if (tarea.AsignadoAId is not int nuevo || nuevo == asignadoAnterior || nuevo == actorId) return;
+
+        var actor = await _db.Usuarios.Where(u => u.Id == actorId).Select(u => u.Nombre).FirstOrDefaultAsync() ?? "Alguien";
+        _db.Notificaciones.Add(new Notificacion
+        {
+            UsuarioId = nuevo,
+            Mensaje = $"{actor} te asignó la tarea \"{tarea.Titulo}\".",
+            ProyectoId = tarea.ProyectoId,
+            TareaId = tarea.Id > 0 ? tarea.Id : null
+        });
     }
 
     // Viewer solo puede leer; Editor y Owner pueden crear/modificar/eliminar tareas.
