@@ -55,11 +55,21 @@ public class AdjuntosTests(ApiFactory api)
     }
 
     [Fact]
+    public async Task Un_ejecutable_renombrado_como_png_se_rechaza_por_su_contenido()
+    {
+        var http = await api.DemoAsync();
+        var tarea = await TareaAsync(http, 2);
+        var falso = "MZ esto no es una imagen"u8.ToArray();
+        Assert.Equal(HttpStatusCode.Conflict, (await http.PostAsync($"/api/v1/tareas/{tarea}/adjuntos", Archivo("foto.png", "image/png", falso))).StatusCode);
+    }
+
+    [Fact]
     public async Task Mas_de_5_MB_se_rechaza()
     {
         var http = await api.DemoAsync();
         var tarea = await TareaAsync(http, 2);
         var grande = new byte[5 * 1024 * 1024 + 1];
+        "%PDF"u8.CopyTo(grande);
         Assert.Equal(HttpStatusCode.Conflict, (await http.PostAsync($"/api/v1/tareas/{tarea}/adjuntos", Archivo("grande.pdf", "application/pdf", grande))).StatusCode);
     }
 }

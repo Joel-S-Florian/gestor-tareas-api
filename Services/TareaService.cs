@@ -25,7 +25,7 @@ public class TareaService : ITareaService
     {
         await _proyectoService.ObtenerRolEnProyectoAsync(proyectoId, usuarioId); // valida acceso, cualquier rol puede leer
 
-        var query = _db.Tareas.Where(t => t.ProyectoId == proyectoId);
+        var query = _db.Tareas.AsNoTracking().Where(t => t.ProyectoId == proyectoId);
 
         if (filtro.Estado.HasValue)
             query = query.Where(t => t.Estado == filtro.Estado.Value);
@@ -38,18 +38,28 @@ public class TareaService : ITareaService
 
         var totalItems = await query.CountAsync();
 
-        var entidades = await query
-            .Include(t => t.AsignadoA)
-            .Include(t => t.Comentarios)
-            .Include(t => t.Adjuntos)
+        // Proyección directa: una consulta, sin cargar entidades ni duplicar filas por los Include.
+        var items = await query
             .OrderBy(t => t.Estado)
             .ThenByDescending(t => t.Prioridad)
             .ThenBy(t => t.Id)
             .Skip((filtro.Page - 1) * filtro.PageSize)
             .Take(filtro.PageSize)
+            .Select(t => new TareaDto
+            {
+                Id = t.Id,
+                Titulo = t.Titulo,
+                Descripcion = t.Descripcion,
+                Estado = t.Estado,
+                Prioridad = t.Prioridad,
+                FechaVencimiento = t.FechaVencimiento,
+                ProyectoId = t.ProyectoId,
+                AsignadoAId = t.AsignadoAId,
+                AsignadoANombre = t.AsignadoA != null ? t.AsignadoA.Nombre : null,
+                TotalComentarios = t.Comentarios.Count,
+                TotalAdjuntos = t.Adjuntos.Count
+            })
             .ToListAsync();
-
-        var items = entidades.Select(MapearDto).ToList();
 
         return new PagedResultDto<TareaDto>
         {

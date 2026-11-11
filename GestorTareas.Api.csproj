@@ -9,6 +9,9 @@
 
   <ItemGroup>
     <Compile Remove="GestorTareas.Tests/**" />
+    <Content Remove="GestorTareas.Tests/**" />
+    <None Remove="GestorTareas.Tests/**" />
+    <EmbeddedResource Remove="GestorTareas.Tests/**" />
   </ItemGroup>
 
   <ItemGroup>

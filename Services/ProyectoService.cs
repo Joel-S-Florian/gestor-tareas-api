@@ -54,15 +54,12 @@ public class ProyectoService : IProyectoService
     {
         var rol = await ObtenerRolEnProyectoAsync(proyectoId, usuarioId);
 
-        var proyecto = await _db.Proyectos
+        var proyecto = await _db.Proyectos.AsNoTracking()
             .Include(p => p.Propietario)
-            .Include(p => p.Tareas)
-            .Include(p => p.Miembros)
-            .FirstOrDefaultAsync(p => p.Id == proyectoId);
+            .FirstOrDefaultAsync(p => p.Id == proyectoId)
+            ?? throw new NotFoundException("Proyecto no encontrado.");
 
-        if (proyecto == null) throw new NotFoundException("Proyecto no encontrado.");
-
-        return MapearDto(proyecto, rol);
+        return await MapearConConteosAsync(proyecto, rol);
     }
 
     public async Task<ProyectoDto> CrearAsync(CrearProyectoDto dto, int usuarioId)
@@ -93,7 +90,7 @@ public class ProyectoService : IProyectoService
         _logger.LogInformation("Proyecto {ProyectoId} ({Nombre}) creado por {UsuarioId}", proyecto.Id, proyecto.Nombre, usuarioId);
 
         proyecto.Propietario = usuario;
-        return MapearDto(proyecto, RolProyecto.Owner);
+        return MapearDto(proyecto, RolProyecto.Owner, totalTareas: 0, totalMiembros: 1);
     }
 
     public async Task<ProyectoDto> ActualizarAsync(int proyectoId, ActualizarProyectoDto dto, int usuarioId)
@@ -103,8 +100,6 @@ public class ProyectoService : IProyectoService
 
         var proyecto = await _db.Proyectos
             .Include(p => p.Propietario)
-            .Include(p => p.Tareas)
-            .Include(p => p.Miembros)
             .FirstOrDefaultAsync(p => p.Id == proyectoId)
             ?? throw new NotFoundException("Proyecto no encontrado.");
 
@@ -114,7 +109,7 @@ public class ProyectoService : IProyectoService
 
         await _db.SaveChangesAsync();
         _logger.LogInformation("Proyecto {ProyectoId} actualizado por {UsuarioId}", proyectoId, usuarioId);
-        return MapearDto(proyecto, rol);
+        return await MapearConConteosAsync(proyecto, rol);
     }
 
     public async Task EliminarAsync(int proyectoId, int usuarioId)
@@ -258,7 +253,12 @@ public class ProyectoService : IProyectoService
             throw new ForbiddenException("No tienes permisos suficientes para esta acción.");
     }
 
-    private static ProyectoDto MapearDto(Proyecto p, RolProyecto miRol) => new()
+    private async Task<ProyectoDto> MapearConConteosAsync(Proyecto p, RolProyecto miRol) =>
+        MapearDto(p, miRol,
+            await _db.Tareas.CountAsync(t => t.ProyectoId == p.Id),
+            await _db.MiembrosProyecto.CountAsync(m => m.ProyectoId == p.Id));
+
+    private static ProyectoDto MapearDto(Proyecto p, RolProyecto miRol, int totalTareas, int totalMiembros) => new()
     {
         Id = p.Id,
         Nombre = p.Nombre,
@@ -268,7 +268,7 @@ public class ProyectoService : IProyectoService
         PropietarioId = p.PropietarioId,
         PropietarioNombre = p.Propietario.Nombre,
         MiRol = miRol,
-        TotalTareas = p.Tareas.Count,
-        TotalMiembros = p.Miembros.Count
+        TotalTareas = totalTareas,
+        TotalMiembros = totalMiembros
     };
 }
