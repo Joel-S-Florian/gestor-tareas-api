@@ -8,8 +8,8 @@ services:
     envVars:
       - key: ASPNETCORE_ENVIRONMENT
         value: Production
-      - key: DB_PROVIDER
-        value: POSTGRES
+      - key: RUN_MIGRATIONS
+        value: "true"
       - key: ConnectionStrings__DefaultConnection
         sync: false
       - key: JWT__Secret

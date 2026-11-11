@@ -40,58 +40,6 @@ public class AuthService : IAuthService
 
     public async Task<AuthResponseDto> LoginAsync(LoginDto dto)
     {
-        // 1. Verificar credenciales fijas
-        if (dto.Email == "joel@demo.com" && dto.Password == "Demo1234!")
-        {
-            try
-            {
-                var user = await _db.Usuarios.FirstOrDefaultAsync(u => u.Email == dto.Email);
-                if (user == null)
-                {
-                    // Crear usuario si no existe
-                    user = new Usuario
-                    {
-                        Email = dto.Email,
-                        Nombre = "Joel Pérez",
-                        FechaRegistro = DateTime.UtcNow
-                    };
-                    user.PasswordHash = _hasher.HashPassword(user, dto.Password);
-
-                    _db.Usuarios.Add(user);
-                    await _db.SaveChangesAsync();
-
-                    _logger.LogInformation("Usuario demo {Email} creado automáticamente (id {UsuarioId})", user.Email, user.Id);
-                }
-
-                _logger.LogInformation("Usuario demo {Email} inició sesión con base de datos", user.Email);
-                return await GenerarRespuestaAsync(user);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error al autenticar o crear el usuario demo en la base de datos. Aplicando fallback de simulación.");
-
-                // FALLBACK: Generar token simulado sin usar la base de datos
-                var simulatedUser = new Usuario
-                {
-                    Id = 9999,
-                    Email = "joel@demo.com",
-                    Nombre = "Joel Pérez (Demo Fallback)"
-                };
-
-                var (accessToken, expira) = _tokenService.GenerarAccessToken(simulatedUser);
-                var refreshToken = "SIMULATED_REFRESH_TOKEN_" + Guid.NewGuid().ToString("N");
-
-                return new AuthResponseDto
-                {
-                    AccessToken = accessToken,
-                    RefreshToken = refreshToken,
-                    AccessTokenExpira = expira,
-                    Usuario = new UsuarioDto { Id = simulatedUser.Id, Nombre = simulatedUser.Nombre, Email = simulatedUser.Email }
-                };
-            }
-        }
-
-        // 2. Si no son las credenciales fijas, intentar login normal
         var usuario = await _db.Usuarios.FirstOrDefaultAsync(u => u.Email == dto.Email);
         if (usuario == null)
         {
