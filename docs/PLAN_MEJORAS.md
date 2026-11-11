@@ -3,7 +3,7 @@
 Cubre las dos repos: `gestor-tareas-api` (.NET 8) y `gestor-tareas-spa` (React 18 + Vite).
 Objetivo: que lo que dice el CV (ASP.NET Core 8 + React + JWT con refresh + PostgreSQL, roles, adjuntos, nube) sea **verdad y demostrable**.
 
-**Estado (2026-11-11):** fases 1, 2, 3 y 4 hechas. Decisiones tomadas: solo PostgreSQL y refresh token en cookie HttpOnly (fase 5). La cuenta de Render fue eliminada: el despliegue (decisión 4) se reabre en la fase 7 y no se despliega nada hasta que se pida.
+**Estado (2026-11-11):** fases 1 a 6 hechas. Decisión del autor: **no habrá despliegue ni producción**; se quitaron `render.yaml` y `vercel.json`, y se borraron los despliegues y el enlace de producción en GitHub. La fase 7 queda reducida a documentación (README único, diagrama, ADR, capturas) y la 8 al CV y el STAR.
 
 ## Diagnóstico (2026-11-11, servidores levantados en local)
 
