@@ -61,11 +61,25 @@ public class AuthService : IAuthService
 
     public async Task<AuthResponseDto> RefreshAsync(string refreshToken)
     {
+        var hash = TokenService.Hash(refreshToken);
         var tokenGuardado = await _db.RefreshTokens
             .Include(r => r.Usuario)
-            .FirstOrDefaultAsync(r => r.Token == refreshToken);
+            .FirstOrDefaultAsync(r => r.Token == hash);
 
-        if (tokenGuardado == null || !tokenGuardado.EstaActivo)
+        if (tokenGuardado == null)
+            throw new AuthException("Refresh token inválido o expirado.");
+
+        // Un token ya rotado que vuelve a presentarse indica robo: se cierran todas las sesiones del usuario.
+        if (tokenGuardado.Revocado)
+        {
+            await _db.RefreshTokens
+                .Where(r => r.UsuarioId == tokenGuardado.UsuarioId && !r.Revocado)
+                .ExecuteUpdateAsync(s => s.SetProperty(r => r.Revocado, true));
+            _logger.LogWarning("Reuso de refresh token revocado: sesiones del usuario {UsuarioId} cerradas", tokenGuardado.UsuarioId);
+            throw new AuthException("Refresh token inválido o expirado.");
+        }
+
+        if (!tokenGuardado.EstaActivo)
             throw new AuthException("Refresh token inválido o expirado.");
 
         // Rotación: se revoca el usado y se emite uno nuevo (mitiga el robo de tokens).
@@ -79,7 +93,8 @@ public class AuthService : IAuthService
 
     public async Task LogoutAsync(string refreshToken)
     {
-        var tokenGuardado = await _db.RefreshTokens.FirstOrDefaultAsync(r => r.Token == refreshToken);
+        var hash = TokenService.Hash(refreshToken);
+        var tokenGuardado = await _db.RefreshTokens.FirstOrDefaultAsync(r => r.Token == hash);
         if (tokenGuardado == null) return;
 
         tokenGuardado.Revocado = true;
@@ -120,7 +135,7 @@ public class AuthService : IAuthService
 
         _db.RefreshTokens.Add(new RefreshToken
         {
-            Token = refreshToken,
+            Token = TokenService.Hash(refreshToken),
             UsuarioId = usuario.Id,
             FechaExpiracion = DateTime.UtcNow.AddDays(_refreshDias)
         });

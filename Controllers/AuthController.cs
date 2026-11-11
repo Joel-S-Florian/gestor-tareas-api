@@ -11,11 +11,15 @@ namespace GestorTareas.Api.Controllers;
 [Route("api/v1/auth")]
 public class AuthController : ControllerBase
 {
-    private readonly IAuthService _authService;
+    private const string CookieRefresh = "gt_rt";
 
-    public AuthController(IAuthService authService)
+    private readonly IAuthService _authService;
+    private readonly IConfiguration _config;
+
+    public AuthController(IAuthService authService, IConfiguration config)
     {
         _authService = authService;
+        _config = config;
     }
 
     [HttpPost("register")]
@@ -25,6 +29,7 @@ public class AuthController : ControllerBase
         try
         {
             var respuesta = await _authService.RegistrarAsync(dto);
+            PonerCookie(respuesta.RefreshToken);
             return Ok(respuesta);
         }
         catch (AuthException ex)
@@ -40,6 +45,7 @@ public class AuthController : ControllerBase
         try
         {
             var respuesta = await _authService.LoginAsync(dto);
+            PonerCookie(respuesta.RefreshToken);
             return Ok(respuesta);
         }
         catch (AuthException ex)
@@ -48,25 +54,34 @@ public class AuthController : ControllerBase
         }
     }
 
+    // El refresh token viaja solo en la cookie HttpOnly: el JavaScript del SPA nunca lo ve.
     [HttpPost("refresh")]
     [EnableRateLimiting("auth")]
-    public async Task<ActionResult<AuthResponseDto>> Refresh(RefreshRequestDto dto)
+    public async Task<ActionResult<AuthResponseDto>> Refresh()
     {
+        var token = Request.Cookies[CookieRefresh];
+        if (string.IsNullOrEmpty(token))
+            return Unauthorized(new ProblemDetails { Title = "No hay sesión.", Status = StatusCodes.Status401Unauthorized });
+
         try
         {
-            var respuesta = await _authService.RefreshAsync(dto.RefreshToken);
+            var respuesta = await _authService.RefreshAsync(token);
+            PonerCookie(respuesta.RefreshToken);
             return Ok(respuesta);
         }
         catch (AuthException ex)
         {
+            BorrarCookie();
             return Unauthorized(new ProblemDetails { Title = ex.Message, Status = StatusCodes.Status401Unauthorized });
         }
     }
 
     [HttpPost("logout")]
-    public async Task<IActionResult> Logout(RefreshRequestDto dto)
+    public async Task<IActionResult> Logout()
     {
-        await _authService.LogoutAsync(dto.RefreshToken);
+        var token = Request.Cookies[CookieRefresh];
+        if (!string.IsNullOrEmpty(token)) await _authService.LogoutAsync(token);
+        BorrarCookie();
         return NoContent();
     }
 
@@ -90,4 +105,24 @@ public class AuthController : ControllerBase
             return Conflict(new ProblemDetails { Title = ex.Message, Status = StatusCodes.Status409Conflict });
         }
     }
+
+    // Lax: el SPA y la API deben compartir sitio (en producción, la API detrás del mismo dominio
+    // del SPA con un rewrite). Para desplegarlos en sitios distintos: Auth:CookieSameSite = None
+    // (exige HTTPS y los navegadores pueden bloquear cookies de terceros).
+    private CookieOptions OpcionesCookie() => new()
+    {
+        HttpOnly = true,
+        Secure = Request.IsHttps,
+        SameSite = Enum.TryParse<SameSiteMode>(_config["Auth:CookieSameSite"], true, out var modo) ? modo : SameSiteMode.Lax,
+        Path = "/api/v1/auth"
+    };
+
+    private void PonerCookie(string refreshToken)
+    {
+        var opciones = OpcionesCookie();
+        opciones.Expires = DateTimeOffset.UtcNow.AddDays(int.Parse(_config["Jwt:RefreshTokenDias"] ?? "7"));
+        Response.Cookies.Append(CookieRefresh, refreshToken, opciones);
+    }
+
+    private void BorrarCookie() => Response.Cookies.Delete(CookieRefresh, OpcionesCookie());
 }

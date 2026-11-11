@@ -32,6 +32,8 @@ public class RefreshRequestDto
 public class AuthResponseDto
 {
     public string AccessToken { get; set; } = string.Empty;
+    // No viaja en el JSON: el controlador lo entrega en una cookie HttpOnly.
+    [System.Text.Json.Serialization.JsonIgnore]
     public string RefreshToken { get; set; } = string.Empty;
     public DateTime AccessTokenExpira { get; set; }
     public UsuarioDto Usuario { get; set; } = null!;

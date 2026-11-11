@@ -17,31 +17,73 @@ public class ReglasYAuthTests(ApiFactory api)
         Assert.Equal(HttpStatusCode.Unauthorized, r.StatusCode);
     }
 
-    [Fact]
-    public async Task El_refresh_token_rota_y_el_viejo_deja_de_servir()
+    // Cliente sin manejo automático de cookies: así se puede reenviar a mano una cookie vieja.
+    private HttpClient Manual() => api.CreateClient(new Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactoryClientOptions { HandleCookies = false });
+
+    private static string CookieDe(HttpResponseMessage r) =>
+        r.Headers.GetValues("Set-Cookie").First(c => c.StartsWith("gt_rt=")).Split(';')[0];
+
+    private static Task<HttpResponseMessage> ConCookie(HttpClient h, string ruta, string cookie)
     {
-        var http = api.CreateClient();
-        var login = await (await Login(http, "ana@demo.com", "ana123")).Content.ReadFromJsonAsync<JsonElement>();
-        var viejo = login.GetProperty("refreshToken").GetString();
-
-        var r1 = await http.PostAsJsonAsync("/api/v1/auth/refresh", new { refreshToken = viejo });
-        Assert.Equal(HttpStatusCode.OK, r1.StatusCode);
-        var nuevo = (await r1.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("refreshToken").GetString();
-        Assert.NotEqual(viejo, nuevo);
-
-        Assert.Equal(HttpStatusCode.Unauthorized, (await http.PostAsJsonAsync("/api/v1/auth/refresh", new { refreshToken = viejo })).StatusCode);
-        Assert.Equal(HttpStatusCode.OK, (await http.PostAsJsonAsync("/api/v1/auth/refresh", new { refreshToken = nuevo })).StatusCode);
+        var req = new HttpRequestMessage(HttpMethod.Post, ruta);
+        req.Headers.Add("Cookie", cookie);
+        return h.SendAsync(req);
     }
 
     [Fact]
-    public async Task Logout_revoca_el_refresh_token()
+    public async Task El_refresh_token_va_en_cookie_HttpOnly_y_no_en_el_JSON()
     {
-        var http = api.CreateClient();
-        var login = await (await Login(http, "luis@demo.com", "luis123")).Content.ReadFromJsonAsync<JsonElement>();
-        var token = login.GetProperty("refreshToken").GetString();
+        var r = await Login(Manual(), "ana@demo.com", "ana123");
+        var setCookie = r.Headers.GetValues("Set-Cookie").First(c => c.StartsWith("gt_rt="));
+        Assert.Contains("httponly", setCookie, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("samesite=lax", setCookie, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("path=/api/v1/auth", setCookie, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("refreshToken", await r.Content.ReadAsStringAsync(), StringComparison.OrdinalIgnoreCase);
+    }
 
-        Assert.Equal(HttpStatusCode.NoContent, (await http.PostAsJsonAsync("/api/v1/auth/logout", new { refreshToken = token })).StatusCode);
-        Assert.Equal(HttpStatusCode.Unauthorized, (await http.PostAsJsonAsync("/api/v1/auth/refresh", new { refreshToken = token })).StatusCode);
+    [Fact]
+    public async Task El_refresh_token_rota_y_el_viejo_deja_de_servir()
+    {
+        var http = Manual();
+        var viejo = CookieDe(await Login(http, "ana@demo.com", "ana123"));
+
+        var r1 = await ConCookie(http, "/api/v1/auth/refresh", viejo);
+        Assert.Equal(HttpStatusCode.OK, r1.StatusCode);
+        var nuevo = CookieDe(r1);
+        Assert.NotEqual(viejo, nuevo);
+        Assert.Contains("accessToken", await r1.Content.ReadAsStringAsync());
+
+        Assert.Equal(HttpStatusCode.Unauthorized, (await ConCookie(http, "/api/v1/auth/refresh", viejo)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Reusar_un_token_rotado_cierra_todas_las_sesiones_del_usuario()
+    {
+        var http = Manual();
+        var viejo = CookieDe(await Login(http, "ana@demo.com", "ana123"));
+        var vigente = CookieDe(await ConCookie(http, "/api/v1/auth/refresh", viejo));
+
+        // Alguien presenta el token ya rotado (robo): el vigente también queda inservible.
+        Assert.Equal(HttpStatusCode.Unauthorized, (await ConCookie(http, "/api/v1/auth/refresh", viejo)).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await ConCookie(http, "/api/v1/auth/refresh", vigente)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Sin_cookie_el_refresh_es_401()
+    {
+        Assert.Equal(HttpStatusCode.Unauthorized, (await Manual().PostAsync("/api/v1/auth/refresh", null)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Logout_revoca_el_refresh_token_y_borra_la_cookie()
+    {
+        var http = Manual();
+        var cookie = CookieDe(await Login(http, "luis@demo.com", "luis123"));
+
+        var salida = await ConCookie(http, "/api/v1/auth/logout", cookie);
+        Assert.Equal(HttpStatusCode.NoContent, salida.StatusCode);
+        Assert.Contains("gt_rt=;", salida.Headers.GetValues("Set-Cookie").First());
+        Assert.Equal(HttpStatusCode.Unauthorized, (await ConCookie(http, "/api/v1/auth/refresh", cookie)).StatusCode);
     }
 
     [Fact]

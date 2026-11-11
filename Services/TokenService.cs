@@ -19,7 +19,7 @@ public class TokenService : ITokenService
     public (string token, DateTime expira) GenerarAccessToken(Usuario usuario)
     {
         var jwtSection = _config.GetSection("Jwt");
-        var jwtSecret = Environment.GetEnvironmentVariable("JWT_SECRET") ?? jwtSection["Secret"];
+        var jwtSecret = jwtSection["Secret"]; // misma fuente que la validación en Program.cs
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret!));
         var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
@@ -44,6 +44,10 @@ public class TokenService : ITokenService
 
         return (new JwtSecurityTokenHandler().WriteToken(token), expira);
     }
+
+    // En la base solo se guarda el hash: si se filtra la tabla, los tokens no sirven.
+    public static string Hash(string token) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
 
     public string GenerarRefreshTokenString()
     {
