@@ -54,12 +54,13 @@ Se siembran únicamente en desarrollo. No existen en ningún otro entorno.
 dotnet test GestorTareas.Tests/GestorTareas.Tests.csproj
 ```
 
-**50 pruebas de integración** que levantan la API real contra PostgreSQL (una base `gt_test_*` por ejecución). Usan `GT_TEST_PG` para apuntar a otro servidor (por defecto `Host=localhost;Username=postgres`). Cubren:
+**63 pruebas de integración** que levantan la API real contra PostgreSQL (una base `gt_test_*` por ejecución). Usan `GT_TEST_PG` para apuntar a otro servidor (por defecto `Host=localhost;Username=postgres`). Cubren:
 
 - **Matriz de roles:** Owner / Editor / Viewer × lectura, edición, tareas, comentarios, miembros y borrado; acceso de quien no es miembro y de quien no tiene token.
 - **Sesión:** cookie HttpOnly, rotación del refresh token, detección de reuso, logout, límite de intentos y que el login "demo" fijo que existía ya no entra.
 - **Adjuntos:** tipo, tamaño (5 MB), rol y comprobación de los primeros bytes del archivo.
 - **Tablero:** orden dentro de la columna, mover entre columnas, filtro de vencidas, avisos de asignación y su privacidad.
+- **Actividad, lista de pasos, etiquetas y menciones:** qué queda en la bitácora (y qué no), permisos por rol, topes, etiquetas de otro proyecto y avisos solo a miembros.
 
 La integración continua (GitHub Actions, `.github/workflows/ci.yml`) ejecuta las mismas pruebas con un servicio PostgreSQL 16.
 
@@ -83,6 +84,11 @@ La integración continua (GitHub Actions, `.github/workflows/ci.yml`) ejecuta la
 | PATCH | `/tareas/{id}/mover` | Cambiar de columna y de posición (arrastrar y soltar) | Owner, Editor |
 | POST / DELETE | `/tareas/{id}/comentarios`, `/comentarios/{id}` | Comentar / borrar el propio | Miembro / Autor |
 | POST / GET / DELETE | `/tareas/{id}/adjuntos`, `/adjuntos/{id}` | Subir (5 MB; imagen o PDF) / descargar / eliminar | Owner, Editor / Miembro |
+| GET | `/proyectos/{id}/actividad`, `/tareas/{id}/actividad` | Bitácora (últimos 100 movimientos) | Miembro |
+| POST / PATCH / DELETE | `/tareas/{id}/checklist`, `/checklist/{itemId}` | Lista de pasos de la tarea (máx. 50) | Owner, Editor |
+| GET / POST | `/proyectos/{id}/etiquetas` | Listar / crear etiquetas del proyecto (máx. 30, nombre único) | Miembro / Owner, Editor |
+| DELETE | `/etiquetas/{id}` | Borrar una etiqueta (se quita de las tareas) | Owner, Editor |
+| PUT | `/tareas/{id}/etiquetas` | Reemplazar las etiquetas de la tarea (máx. 10, del mismo proyecto) | Owner, Editor |
 | GET | `/notificaciones` | Mis avisos (últimos 30 y no leídos) | Autenticado |
 | POST | `/notificaciones/{id}/leida`, `/notificaciones/leer-todas` | Marcar leídos | Autenticado |
 | GET | `/health` | Estado | Público |
@@ -94,6 +100,8 @@ Errores como `ProblemDetails` (RFC 7807): 400 validación, 401 sin sesión, 403 
 - Solo se ve y edita un proyecto donde se es miembro. Owner: todo; Editor: tareas, no miembros ni borrar el proyecto; Viewer: solo lectura (puede comentar).
 - No se elimina un proyecto con tareas, ni se remueve ni cambia el rol del propietario.
 - Una tarea solo se asigna a un miembro del proyecto; asignarla avisa a esa persona (no a quien se la asigna a sí mismo).
+- **Menciones:** `@ana` en un comentario avisa a la persona cuyo email empieza por `ana@`, solo si es miembro del proyecto y nunca al autor; un email escrito en el texto (`juan@ana.com`) no cuenta.
+- **Actividad:** se registra crear, editar, mover de columna, asignar, comentar, adjuntar, etiquetar, completar la lista y eliminar. No se registra reordenar dentro de la columna, editar sin cambios ni marcar pasos sueltos.
 - Adjuntos: máximo 5 MB; extensión, `Content-Type` y primeros bytes del archivo deben coincidir (JPEG, PNG, GIF, WebP, PDF).
 - Contraseñas con el hasher de ASP.NET Core Identity; refresh tokens guardados solo como hash.
 
@@ -154,6 +162,7 @@ erDiagram
 | [002](docs/decisiones/002-sesion-con-cookie-httponly.md) | Access token en memoria, refresh en cookie HttpOnly con hash y detección de reuso |
 | [003](docs/decisiones/003-sin-despliegue.md) | El proyecto no se despliega |
 | [004](docs/decisiones/004-pruebas-con-postgresql-real.md) | Pruebas de integración con la API real y PostgreSQL real |
+| [005](docs/decisiones/005-actividad-menciones-checklist-etiquetas.md) | Actividad como mensajes ya redactados, menciones por email, lista de pasos y etiquetas por proyecto |
 
 El historial de la reconstrucción está en [docs/PLAN_MEJORAS.md](docs/PLAN_MEJORAS.md).
 
