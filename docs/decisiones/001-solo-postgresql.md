@@ -6,7 +6,7 @@
 El proyecto arrancó con SQL Server LocalDB en desarrollo y PostgreSQL previsto para la nube, con un interruptor `DB_PROVIDER`. La única migración era de SQL Server, así que el camino PostgreSQL nunca estuvo probado, y el README y el CV decían cosas distintas.
 
 ## Decisión
-Un solo proveedor: **PostgreSQL** (Npgsql). Se eliminó `DB_PROVIDER` y el paquete de SQL Server, y se regeneró la migración inicial. Las migraciones se aplican en un solo sitio (`Program.cs`): en Development, o con `RUN_MIGRATIONS=true`.
+Un solo proveedor: **PostgreSQL** (Npgsql). Se eliminó `DB_PROVIDER` y el paquete de SQL Server, y se regeneró la migración inicial. Las migraciones se aplican en un solo sitio (`Program.cs`), y solo en Development.
 
 ## Consecuencias
 - Lo que se prueba en local y en CI es lo mismo que correría en cualquier entorno.

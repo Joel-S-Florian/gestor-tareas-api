@@ -2,7 +2,7 @@
 
 API REST de un gestor de proyectos y tareas tipo Trello: proyectos con roles (Owner / Editor / Viewer), tablero Kanban con orden propio, comentarios, adjuntos, avisos de asignación y autenticación JWT con refresh token en cookie HttpOnly.
 
-Es una de las dos repos del proyecto; el cliente está en [gestor-tareas-spa](https://github.com/Joel-S-Florian/gestor-tareas-spa). **No está desplegada** (ver [ADR 003](docs/decisiones/003-sin-despliegue.md)): se ejecuta en local.
+Es una de las dos repos del proyecto; el cliente está en [gestor-tareas-spa](https://github.com/Joel-S-Florian/gestor-tareas-spa). **Es un proyecto solo para ejecutar en local** (ver [ADR 003](docs/decisiones/003-sin-despliegue.md)): no tiene configuración de despliegue, y Swagger, las migraciones automáticas y los datos de demostración solo funcionan en Development.
 
 | Tablero | Dashboard |
 |---|---|
@@ -30,9 +30,8 @@ La API queda en `https://localhost:52411` (Swagger en `/swagger`, salud en `/hea
 
 | Clave (variable de entorno) | Uso |
 |---|---|
-| `ConnectionStrings__DefaultConnection` | Cadena de PostgreSQL (acepta también `postgres://usuario:clave@host:puerto/bd`). Obligatoria. |
+| `ConnectionStrings__DefaultConnection` | Cadena de PostgreSQL. Obligatoria. |
 | `Jwt__Secret` | Secreto de al menos 32 bytes. **Obligatorio: sin él la API no arranca.** El de desarrollo está en `appsettings.Development.json`. |
-| `RUN_MIGRATIONS=true` | Aplica migraciones fuera de Development. |
 | `Auth__CookieSameSite` | `Lax` (por defecto), `Strict` o `None`. Ver [ADR 002](docs/decisiones/002-sesion-con-cookie-httponly.md). |
 | `RateLimit__Auth__Permit` | Intentos por minuto y por IP en login/registro/refresh (10 por defecto). |
 | `UploadsPath` | Carpeta de adjuntos (por defecto `Uploads`). |

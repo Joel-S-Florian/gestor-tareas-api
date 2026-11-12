@@ -6,7 +6,6 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
-using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -15,14 +14,6 @@ var builder = WebApplication.CreateBuilder(args);
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 if (string.IsNullOrWhiteSpace(connectionString))
     throw new InvalidOperationException("Falta ConnectionStrings:DefaultConnection.");
-
-// Render entrega la URL como postgres://usuario:clave@host:puerto/bd
-if (connectionString.StartsWith("postgres://"))
-{
-    var uri = new Uri(connectionString);
-    var userInfo = uri.UserInfo.Split(':');
-    connectionString = $"Host={uri.Host};Port={(uri.Port > 0 ? uri.Port : 5432)};Username={userInfo[0]};Password={userInfo[1]};Database={uri.LocalPath.TrimStart('/')};SSL Mode=Require;Trust Server Certificate=True";
-}
 
 builder.Services.AddDbContext<ApplicationDbContext>(o => o.UseNpgsql(connectionString));
 
@@ -40,11 +31,6 @@ builder.Services.AddControllers()
     {
         options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
     });
-
-builder.Services.Configure<ForwardedHeadersOptions>(options =>
-{
-    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
-});
 
 // ---------- JWT Authentication ----------
 var jwtSection = builder.Configuration.GetSection("Jwt");
@@ -130,24 +116,22 @@ builder.Services.AddHealthChecks();
 
 var app = builder.Build();
 
-app.UseForwardedHeaders();
 app.UseCors("AllowSpecificOrigins");
 
-// ---------- Swagger ----------
-app.UseSwagger();
-app.UseSwaggerUI(c =>
+// Proyecto solo de desarrollo: Swagger, migraciones y datos demo únicamente en Development.
+if (app.Environment.IsDevelopment())
 {
-    c.SwaggerEndpoint("/swagger/v1/swagger.json", "Gestor de Tareas API v1");
-    c.RoutePrefix = "swagger";
-});
+    app.UseSwagger();
+    app.UseSwaggerUI(c =>
+    {
+        c.SwaggerEndpoint("/swagger/v1/swagger.json", "Gestor de Tareas API v1");
+        c.RoutePrefix = "swagger";
+    });
 
-// ---------- Migraciones (y seed demo solo en Development) ----------
-if (app.Environment.IsDevelopment() || Environment.GetEnvironmentVariable("RUN_MIGRATIONS") == "true")
-{
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
     db.Database.Migrate();
-    if (app.Environment.IsDevelopment()) SeedData.Seed(db);
+    SeedData.Seed(db);
 }
 
 app.UseMiddleware<ExceptionMiddleware>();

@@ -66,11 +66,9 @@ Cada fase termina con pruebas verdes, commit y una línea en `docs/decisiones/` 
 - Notificación simple al ser asignado (sin correo, solo en la app).
 - Solo lo que haga la demo más convincente; nada de tiempo real/WebSockets salvo que se decida.
 
-### Fase 7 — Despliegue y documentación
-- Desplegar API + SPA + PostgreSQL gestionado; CORS de producción; `/health` con comprobación de BD.
+### Fase 7 — Documentación (sin despliegue)
 - README único y coherente (una sola tabla de credenciales demo), diagrama de arquitectura, ADR, capturas.
-- URLs públicas en el README y en el CV.
-- **Hecho cuando:** el flujo login → proyecto → tarea → adjunto funciona en la URL pública.
+- **Hecho cuando:** los dos README coinciden con lo que se ejecuta y las pruebas pasan en local.
 
 ### Fase 8 — Cierre
 - Actualizar el CV (.md y .tex) y escribir el STAR de este proyecto, con cifras reales (pruebas, fases, ADR) y los límites declarados.
@@ -80,6 +78,5 @@ Cada fase termina con pruebas verdes, commit y una línea en `docs/decisiones/` 
 Correo de confirmación, recuperación de contraseña, tiempo real, aplicación móvil, multi-tenant.
 
 ## Riesgos
-- El Postgres de Render gratis caduca a los 30 días: avisar en el README o elegir otro plan.
 - Cambiar el proveedor de BD invalida la migración actual: no hay datos de producción que conservar (el despliegue nunca terminó), así que es el mejor momento.
 - Los commits antiguos conservan el login fijo y el secreto de desarrollo; al ser repos públicos, eso queda en el historial (no es un secreto real, pero se menciona en el ADR).
