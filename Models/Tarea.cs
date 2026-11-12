@@ -20,4 +20,6 @@ public class Tarea
 
     public ICollection<Comentario> Comentarios { get; set; } = new List<Comentario>();
     public ICollection<Adjunto> Adjuntos { get; set; } = new List<Adjunto>();
+    public ICollection<ItemChecklist> Checklist { get; set; } = new List<ItemChecklist>();
+    public ICollection<Etiqueta> Etiquetas { get; set; } = new List<Etiqueta>();
 }

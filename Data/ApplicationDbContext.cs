@@ -15,6 +15,9 @@ public class ApplicationDbContext : DbContext
     public DbSet<Adjunto> Adjuntos => Set<Adjunto>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<Notificacion> Notificaciones => Set<Notificacion>();
+    public DbSet<Actividad> Actividades => Set<Actividad>();
+    public DbSet<ItemChecklist> ItemsChecklist => Set<ItemChecklist>();
+    public DbSet<Etiqueta> Etiquetas => Set<Etiqueta>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -95,6 +98,29 @@ public class ApplicationDbContext : DbContext
                 .WithMany(t => t.Adjuntos)
                 .HasForeignKey(a => a.TareaId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Actividad>(e =>
+        {
+            e.Property(a => a.Mensaje).HasMaxLength(500).IsRequired();
+            e.HasIndex(a => new { a.ProyectoId, a.Fecha });
+            e.HasOne<Proyecto>().WithMany().HasForeignKey(a => a.ProyectoId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(a => a.Usuario).WithMany().HasForeignKey(a => a.UsuarioId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<ItemChecklist>(e =>
+        {
+            e.Property(i => i.Texto).HasMaxLength(200).IsRequired();
+            e.HasOne(i => i.Tarea).WithMany(t => t.Checklist).HasForeignKey(i => i.TareaId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Etiqueta>(e =>
+        {
+            e.Property(x => x.Nombre).HasMaxLength(40).IsRequired();
+            e.Property(x => x.Color).HasMaxLength(7).IsRequired();
+            e.HasIndex(x => new { x.ProyectoId, x.Nombre }).IsUnique();
+            e.HasOne<Proyecto>().WithMany().HasForeignKey(x => x.ProyectoId).OnDelete(DeleteBehavior.Cascade);
+            e.HasMany(x => x.Tareas).WithMany(t => t.Etiquetas);
         });
 
         modelBuilder.Entity<Notificacion>(e =>

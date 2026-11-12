@@ -85,6 +85,7 @@ public class AdjuntoService : IAdjuntoService
         };
 
         _db.Adjuntos.Add(adjunto);
+        Actividades.Registrar(_db, tarea.ProyectoId, tareaId, usuarioId, $"adjuntó «{archivo.FileName}» a «{tarea.Titulo}»");
         await _db.SaveChangesAsync();
 
         _logger.LogInformation("Adjunto {AdjuntoId} ({Nombre}, {Tamano} bytes) subido a la tarea {TareaId} por {UsuarioId}",

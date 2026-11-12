@@ -24,6 +24,7 @@ builder.Services.AddScoped<IProyectoService, ProyectoService>();
 builder.Services.AddScoped<ITareaService, TareaService>();
 builder.Services.AddScoped<IComentarioService, ComentarioService>();
 builder.Services.AddScoped<IAdjuntoService, AdjuntoService>();
+builder.Services.AddScoped<ExtrasService>();
 
 // ---------- Controllers ----------
 builder.Services.AddControllers()

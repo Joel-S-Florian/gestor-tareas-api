@@ -22,6 +22,55 @@ namespace GestorTareas.Api.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("EtiquetaTarea", b =>
+                {
+                    b.Property<int>("EtiquetasId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("TareasId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("EtiquetasId", "TareasId");
+
+                    b.HasIndex("TareasId");
+
+                    b.ToTable("EtiquetaTarea");
+                });
+
+            modelBuilder.Entity("GestorTareas.Api.Models.Actividad", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("Fecha")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Mensaje")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<int>("ProyectoId")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("TareaId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("UsuarioId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UsuarioId");
+
+                    b.HasIndex("ProyectoId", "Fecha");
+
+                    b.ToTable("Actividades");
+                });
+
             modelBuilder.Entity("GestorTareas.Api.Models.Adjunto", b =>
                 {
                     b.Property<int>("Id")
@@ -84,6 +133,64 @@ namespace GestorTareas.Api.Migrations
                     b.HasIndex("UsuarioId");
 
                     b.ToTable("Comentarios");
+                });
+
+            modelBuilder.Entity("GestorTareas.Api.Models.Etiqueta", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Color")
+                        .IsRequired()
+                        .HasMaxLength(7)
+                        .HasColumnType("character varying(7)");
+
+                    b.Property<string>("Nombre")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<int>("ProyectoId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProyectoId", "Nombre")
+                        .IsUnique();
+
+                    b.ToTable("Etiquetas");
+                });
+
+            modelBuilder.Entity("GestorTareas.Api.Models.ItemChecklist", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<bool>("Hecho")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("Orden")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("TareaId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Texto")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TareaId");
+
+                    b.ToTable("ItemsChecklist");
                 });
 
             modelBuilder.Entity("GestorTareas.Api.Models.MiembroProyecto", b =>
@@ -284,6 +391,38 @@ namespace GestorTareas.Api.Migrations
                     b.ToTable("Usuarios");
                 });
 
+            modelBuilder.Entity("EtiquetaTarea", b =>
+                {
+                    b.HasOne("GestorTareas.Api.Models.Etiqueta", null)
+                        .WithMany()
+                        .HasForeignKey("EtiquetasId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("GestorTareas.Api.Models.Tarea", null)
+                        .WithMany()
+                        .HasForeignKey("TareasId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("GestorTareas.Api.Models.Actividad", b =>
+                {
+                    b.HasOne("GestorTareas.Api.Models.Proyecto", null)
+                        .WithMany()
+                        .HasForeignKey("ProyectoId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("GestorTareas.Api.Models.Usuario", "Usuario")
+                        .WithMany()
+                        .HasForeignKey("UsuarioId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Usuario");
+                });
+
             modelBuilder.Entity("GestorTareas.Api.Models.Adjunto", b =>
                 {
                     b.HasOne("GestorTareas.Api.Models.Tarea", "Tarea")
@@ -312,6 +451,26 @@ namespace GestorTareas.Api.Migrations
                     b.Navigation("Tarea");
 
                     b.Navigation("Usuario");
+                });
+
+            modelBuilder.Entity("GestorTareas.Api.Models.Etiqueta", b =>
+                {
+                    b.HasOne("GestorTareas.Api.Models.Proyecto", null)
+                        .WithMany()
+                        .HasForeignKey("ProyectoId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("GestorTareas.Api.Models.ItemChecklist", b =>
+                {
+                    b.HasOne("GestorTareas.Api.Models.Tarea", "Tarea")
+                        .WithMany("Checklist")
+                        .HasForeignKey("TareaId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Tarea");
                 });
 
             modelBuilder.Entity("GestorTareas.Api.Models.MiembroProyecto", b =>
@@ -394,6 +553,8 @@ namespace GestorTareas.Api.Migrations
             modelBuilder.Entity("GestorTareas.Api.Models.Tarea", b =>
                 {
                     b.Navigation("Adjuntos");
+
+                    b.Navigation("Checklist");
 
                     b.Navigation("Comentarios");
                 });

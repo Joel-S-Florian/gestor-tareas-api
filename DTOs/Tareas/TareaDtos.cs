@@ -46,6 +46,8 @@ public class TareaFiltroDto
     public PrioridadTarea? Prioridad { get; set; }
     public int? AsignadoAId { get; set; }
 
+    public int? EtiquetaId { get; set; }
+
     // Solo tareas con fecha de vencimiento pasada que no están en Hecho.
     public bool Vencidas { get; set; }
 
@@ -79,6 +81,9 @@ public class TareaDto
     public string? AsignadoANombre { get; set; }
     public int TotalComentarios { get; set; }
     public int TotalAdjuntos { get; set; }
+    public int TotalChecklist { get; set; }
+    public int ChecklistHechos { get; set; }
+    public List<Extras.EtiquetaDto> Etiquetas { get; set; } = new();
 }
 
 // Se usa en el detalle de una tarea individual: incluye comentarios y adjuntos completos,
@@ -87,4 +92,5 @@ public class TareaDetalleDto : TareaDto
 {
     public List<Comentarios.ComentarioDto> Comentarios { get; set; } = new();
     public List<Adjuntos.AdjuntoDto> Adjuntos { get; set; } = new();
+    public List<Extras.ItemChecklistDto> Checklist { get; set; } = new();
 }
