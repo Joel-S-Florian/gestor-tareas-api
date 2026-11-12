@@ -2,6 +2,7 @@ using GestorTareas.Api.Data;
 using GestorTareas.Api.DTOs.Adjuntos;
 using GestorTareas.Api.DTOs.Comentarios;
 using GestorTareas.Api.DTOs.Common;
+using GestorTareas.Api.DTOs.Extras;
 using GestorTareas.Api.DTOs.Tareas;
 using GestorTareas.Api.Models;
 using Microsoft.EntityFrameworkCore;
@@ -25,7 +26,7 @@ public class TareaService : ITareaService
     {
         await _proyectoService.ObtenerRolEnProyectoAsync(proyectoId, usuarioId); // valida acceso, cualquier rol puede leer
 
-        var query = _db.Tareas.Where(t => t.ProyectoId == proyectoId);
+        var query = _db.Tareas.AsNoTracking().Where(t => t.ProyectoId == proyectoId);
 
         if (filtro.Estado.HasValue)
             query = query.Where(t => t.Estado == filtro.Estado.Value);
@@ -36,20 +37,42 @@ public class TareaService : ITareaService
         if (filtro.AsignadoAId.HasValue)
             query = query.Where(t => t.AsignadoAId == filtro.AsignadoAId.Value);
 
+        if (filtro.EtiquetaId.HasValue)
+            query = query.Where(t => t.Etiquetas.Any(e => e.Id == filtro.EtiquetaId.Value));
+
+        if (filtro.Vencidas)
+        {
+            var ahora = DateTime.UtcNow;
+            query = query.Where(t => t.FechaVencimiento < ahora && t.Estado != EstadoTarea.Done);
+        }
+
         var totalItems = await query.CountAsync();
 
-        var entidades = await query
-            .Include(t => t.AsignadoA)
-            .Include(t => t.Comentarios)
-            .Include(t => t.Adjuntos)
+        // Proyección directa: una consulta, sin cargar entidades ni duplicar filas por los Include.
+        var items = await query
             .OrderBy(t => t.Estado)
-            .ThenByDescending(t => t.Prioridad)
+            .ThenBy(t => t.Orden)
             .ThenBy(t => t.Id)
             .Skip((filtro.Page - 1) * filtro.PageSize)
             .Take(filtro.PageSize)
+            .Select(t => new TareaDto
+            {
+                Id = t.Id,
+                Titulo = t.Titulo,
+                Descripcion = t.Descripcion,
+                Estado = t.Estado,
+                Prioridad = t.Prioridad,
+                FechaVencimiento = t.FechaVencimiento,
+                ProyectoId = t.ProyectoId,
+                AsignadoAId = t.AsignadoAId,
+                AsignadoANombre = t.AsignadoA != null ? t.AsignadoA.Nombre : null,
+                TotalComentarios = t.Comentarios.Count,
+                TotalAdjuntos = t.Adjuntos.Count,
+                TotalChecklist = t.Checklist.Count,
+                ChecklistHechos = t.Checklist.Count(i => i.Hecho),
+                Etiquetas = t.Etiquetas.OrderBy(e => e.Nombre).Select(e => new EtiquetaDto { Id = e.Id, Nombre = e.Nombre, Color = e.Color }).ToList()
+            })
             .ToListAsync();
-
-        var items = entidades.Select(MapearDto).ToList();
 
         return new PagedResultDto<TareaDto>
         {
@@ -66,6 +89,8 @@ public class TareaService : ITareaService
             .Include(t => t.AsignadoA)
             .Include(t => t.Comentarios).ThenInclude(c => c.Usuario)
             .Include(t => t.Adjuntos)
+            .Include(t => t.Checklist)
+            .Include(t => t.Etiquetas)
             .FirstOrDefaultAsync(t => t.Id == tareaId)
             ?? throw new NotFoundException("Tarea no encontrada.");
 
@@ -90,10 +115,15 @@ public class TareaService : ITareaService
             FechaVencimiento = dto.FechaVencimiento,
             AsignadoAId = dto.AsignadoAId,
             ProyectoId = proyectoId,
-            Estado = EstadoTarea.ToDo
+            Estado = EstadoTarea.ToDo,
+            Orden = await SiguienteOrdenAsync(proyectoId, EstadoTarea.ToDo)
         };
 
         _db.Tareas.Add(tarea);
+        await AvisarAsignacionAsync(tarea, null, usuarioId);
+        await _db.SaveChangesAsync();
+
+        Actividades.Registrar(_db, proyectoId, tarea.Id, usuarioId, $"creó la tarea «{tarea.Titulo}»");
         await _db.SaveChangesAsync();
 
         _logger.LogInformation("Tarea {TareaId} ({Titulo}) creada en el proyecto {ProyectoId} por {UsuarioId}",
@@ -113,11 +143,29 @@ public class TareaService : ITareaService
         if (dto.AsignadoAId.HasValue)
             await ValidarAsignadoEsMiembroAsync(tarea.ProyectoId, dto.AsignadoAId.Value);
 
+        var cambioContenido = tarea.Titulo != dto.Titulo || tarea.Descripcion != dto.Descripcion
+            || tarea.Prioridad != dto.Prioridad || tarea.FechaVencimiento != dto.FechaVencimiento;
+        var tituloAnterior = tarea.Titulo;
+
         tarea.Titulo = dto.Titulo;
         tarea.Descripcion = dto.Descripcion;
         tarea.Prioridad = dto.Prioridad;
         tarea.FechaVencimiento = dto.FechaVencimiento;
+        var asignadoAnterior = tarea.AsignadoAId;
         tarea.AsignadoAId = dto.AsignadoAId;
+        await AvisarAsignacionAsync(tarea, asignadoAnterior, usuarioId);
+
+        if (cambioContenido)
+            Actividades.Registrar(_db, tarea.ProyectoId, tarea.Id, usuarioId,
+                tituloAnterior == dto.Titulo ? $"editó la tarea «{dto.Titulo}»" : $"editó la tarea «{tituloAnterior}» (ahora «{dto.Titulo}»)");
+        if (asignadoAnterior != dto.AsignadoAId)
+        {
+            var nombre = dto.AsignadoAId is int nuevo
+                ? await _db.Usuarios.Where(u => u.Id == nuevo).Select(u => u.Nombre).FirstOrDefaultAsync()
+                : null;
+            Actividades.Registrar(_db, tarea.ProyectoId, tarea.Id, usuarioId,
+                nombre != null ? $"asignó «{dto.Titulo}» a {nombre}" : $"quitó la asignación de «{dto.Titulo}»");
+        }
 
         await _db.SaveChangesAsync();
         _logger.LogInformation("Tarea {TareaId} actualizada por {UsuarioId}", tarea.Id, usuarioId);
@@ -132,12 +180,44 @@ public class TareaService : ITareaService
         var rol = await _proyectoService.ObtenerRolEnProyectoAsync(tarea.ProyectoId, usuarioId);
         RequerirEdicion(rol);
 
+        if (tarea.Estado != dto.Estado)
+        {
+            tarea.Orden = await SiguienteOrdenAsync(tarea.ProyectoId, dto.Estado); // al final de la columna nueva
+            Actividades.Registrar(_db, tarea.ProyectoId, tarea.Id, usuarioId,
+                $"movió «{tarea.Titulo}» de {Actividades.Nombre(tarea.Estado)} a {Actividades.Nombre(dto.Estado)}");
+        }
         tarea.Estado = dto.Estado;
         await _db.SaveChangesAsync();
 
         _logger.LogInformation("Tarea {TareaId} cambió a estado {Estado} por {UsuarioId}", tarea.Id, dto.Estado, usuarioId);
 
         return await ObtenerPorIdAsync(tarea.Id, usuarioId);
+    }
+
+    public async Task<TareaDto> MoverAsync(int tareaId, MoverTareaDto dto, int usuarioId)
+    {
+        var tarea = await _db.Tareas.FindAsync(tareaId)
+            ?? throw new NotFoundException("Tarea no encontrada.");
+
+        var rol = await _proyectoService.ObtenerRolEnProyectoAsync(tarea.ProyectoId, usuarioId);
+        RequerirEdicion(rol);
+
+        // Se reescribe el orden de la columna de destino completa: simple y sin huecos ni empates.
+        var columna = await _db.Tareas
+            .Where(t => t.ProyectoId == tarea.ProyectoId && t.Estado == dto.Estado && t.Id != tareaId)
+            .OrderBy(t => t.Orden).ThenBy(t => t.Id)
+            .ToListAsync();
+
+        if (tarea.Estado != dto.Estado)
+            Actividades.Registrar(_db, tarea.ProyectoId, tarea.Id, usuarioId,
+                $"movió «{tarea.Titulo}» de {Actividades.Nombre(tarea.Estado)} a {Actividades.Nombre(dto.Estado)}");
+
+        columna.Insert(Math.Min(dto.Posicion, columna.Count), tarea);
+        tarea.Estado = dto.Estado;
+        for (var i = 0; i < columna.Count; i++) columna[i].Orden = i;
+
+        await _db.SaveChangesAsync();
+        return await ObtenerPorIdAsync(tareaId, usuarioId);
     }
 
     public async Task EliminarAsync(int tareaId, int usuarioId)
@@ -148,6 +228,7 @@ public class TareaService : ITareaService
         var rol = await _proyectoService.ObtenerRolEnProyectoAsync(tarea.ProyectoId, usuarioId);
         RequerirEdicion(rol);
 
+        Actividades.Registrar(_db, tarea.ProyectoId, null, usuarioId, $"eliminó la tarea «{tarea.Titulo}»");
         _db.Tareas.Remove(tarea);
         await _db.SaveChangesAsync();
         _logger.LogInformation("Tarea {TareaId} eliminada por {UsuarioId}", tareaId, usuarioId);
@@ -160,6 +241,24 @@ public class TareaService : ITareaService
 
         if (!esMiembro)
             throw new ConflictException("Solo puedes asignar la tarea a un miembro del proyecto.");
+    }
+
+    private async Task<int> SiguienteOrdenAsync(int proyectoId, EstadoTarea estado) =>
+        (await _db.Tareas.Where(t => t.ProyectoId == proyectoId && t.Estado == estado).MaxAsync(t => (int?)t.Orden) ?? -1) + 1;
+
+    // Aviso dentro de la app a quien recibe la tarea (no a quien se la asigna a sí mismo).
+    private async Task AvisarAsignacionAsync(Tarea tarea, int? asignadoAnterior, int actorId)
+    {
+        if (tarea.AsignadoAId is not int nuevo || nuevo == asignadoAnterior || nuevo == actorId) return;
+
+        var actor = await _db.Usuarios.Where(u => u.Id == actorId).Select(u => u.Nombre).FirstOrDefaultAsync() ?? "Alguien";
+        _db.Notificaciones.Add(new Notificacion
+        {
+            UsuarioId = nuevo,
+            Mensaje = $"{actor} te asignó la tarea \"{tarea.Titulo}\".",
+            ProyectoId = tarea.ProyectoId,
+            TareaId = tarea.Id > 0 ? tarea.Id : null
+        });
     }
 
     // Viewer solo puede leer; Editor y Owner pueden crear/modificar/eliminar tareas.
@@ -181,7 +280,10 @@ public class TareaService : ITareaService
         AsignadoAId = t.AsignadoAId,
         AsignadoANombre = t.AsignadoA?.Nombre,
         TotalComentarios = t.Comentarios?.Count ?? 0,
-        TotalAdjuntos = t.Adjuntos?.Count ?? 0
+        TotalAdjuntos = t.Adjuntos?.Count ?? 0,
+        TotalChecklist = t.Checklist?.Count ?? 0,
+        ChecklistHechos = t.Checklist?.Count(i => i.Hecho) ?? 0,
+        Etiquetas = (t.Etiquetas ?? new List<Etiqueta>()).OrderBy(e => e.Nombre).Select(e => new EtiquetaDto { Id = e.Id, Nombre = e.Nombre, Color = e.Color }).ToList()
     };
 
     private static TareaDetalleDto MapearDetalleDto(Tarea t) => new()
@@ -197,6 +299,10 @@ public class TareaService : ITareaService
         AsignadoANombre = t.AsignadoA?.Nombre,
         TotalComentarios = t.Comentarios?.Count ?? 0,
         TotalAdjuntos = t.Adjuntos?.Count ?? 0,
+        TotalChecklist = t.Checklist?.Count ?? 0,
+        ChecklistHechos = t.Checklist?.Count(i => i.Hecho) ?? 0,
+        Etiquetas = (t.Etiquetas ?? new List<Etiqueta>()).OrderBy(e => e.Nombre).Select(e => new EtiquetaDto { Id = e.Id, Nombre = e.Nombre, Color = e.Color }).ToList(),
+        Checklist = (t.Checklist ?? new List<ItemChecklist>()).OrderBy(i => i.Orden).ThenBy(i => i.Id).Select(i => new ItemChecklistDto { Id = i.Id, Texto = i.Texto, Hecho = i.Hecho }).ToList(),
         Comentarios = (t.Comentarios ?? new List<Comentario>())
             .OrderBy(c => c.FechaCreacion)
             .Select(c => new ComentarioDto

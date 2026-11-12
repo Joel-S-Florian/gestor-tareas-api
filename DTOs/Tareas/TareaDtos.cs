@@ -46,11 +46,26 @@ public class TareaFiltroDto
     public PrioridadTarea? Prioridad { get; set; }
     public int? AsignadoAId { get; set; }
 
+    public int? EtiquetaId { get; set; }
+
+    // Solo tareas con fecha de vencimiento pasada que no están en Hecho.
+    public bool Vencidas { get; set; }
+
     [Range(1, int.MaxValue)]
     public int Page { get; set; } = 1;
 
     [Range(1, 100)]
     public int PageSize { get; set; } = 20;
+}
+
+public class MoverTareaDto
+{
+    [Required]
+    public EstadoTarea Estado { get; set; }
+
+    // Posición (desde 0) dentro de la columna de destino.
+    [Range(0, 10000)]
+    public int Posicion { get; set; }
 }
 
 public class TareaDto
@@ -66,6 +81,9 @@ public class TareaDto
     public string? AsignadoANombre { get; set; }
     public int TotalComentarios { get; set; }
     public int TotalAdjuntos { get; set; }
+    public int TotalChecklist { get; set; }
+    public int ChecklistHechos { get; set; }
+    public List<Extras.EtiquetaDto> Etiquetas { get; set; } = new();
 }
 
 // Se usa en el detalle de una tarea individual: incluye comentarios y adjuntos completos,
@@ -74,4 +92,5 @@ public class TareaDetalleDto : TareaDto
 {
     public List<Comentarios.ComentarioDto> Comentarios { get; set; } = new();
     public List<Adjuntos.AdjuntoDto> Adjuntos { get; set; } = new();
+    public List<Extras.ItemChecklistDto> Checklist { get; set; } = new();
 }

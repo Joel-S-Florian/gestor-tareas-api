@@ -61,6 +61,13 @@ public class AdjuntoService : IAdjuntoService
         if (!string.Equals(archivo.ContentType, mimeEsperado, StringComparison.OrdinalIgnoreCase))
             throw new ConflictException("El tipo de archivo no coincide con su extensión.");
 
+        // Tercera validación: los primeros bytes del archivo deben ser los del formato que dice ser.
+        var cabecera = new byte[12];
+        await using (var lectura = archivo.OpenReadStream())
+            await lectura.ReadAtLeastAsync(cabecera, cabecera.Length, throwOnEndOfStream: false);
+        if (!FirmaCoincide(extension, cabecera))
+            throw new ConflictException("El contenido del archivo no corresponde a su tipo.");
+
         var nombreEnDisco = $"{Guid.NewGuid()}{extension}";
         var rutaCompleta = Path.Combine(_rutaBase, nombreEnDisco);
 
@@ -78,6 +85,7 @@ public class AdjuntoService : IAdjuntoService
         };
 
         _db.Adjuntos.Add(adjunto);
+        Actividades.Registrar(_db, tarea.ProyectoId, tareaId, usuarioId, $"adjuntó «{archivo.FileName}» a «{tarea.Titulo}»");
         await _db.SaveChangesAsync();
 
         _logger.LogInformation("Adjunto {AdjuntoId} ({Nombre}, {Tamano} bytes) subido a la tarea {TareaId} por {UsuarioId}",
@@ -90,6 +98,20 @@ public class AdjuntoService : IAdjuntoService
             NombreArchivo = adjunto.NombreArchivo,
             TamanoBytes = adjunto.TamanoBytes,
             FechaSubida = adjunto.FechaSubida
+        };
+    }
+
+    private static bool FirmaCoincide(string extension, byte[] b)
+    {
+        static bool Empieza(byte[] b, params byte[] firma) => b.AsSpan(0, firma.Length).SequenceEqual(firma);
+        return extension switch
+        {
+            ".jpg" or ".jpeg" => Empieza(b, 0xFF, 0xD8, 0xFF),
+            ".png" => Empieza(b, 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A),
+            ".gif" => Empieza(b, (byte)'G', (byte)'I', (byte)'F', (byte)'8'),
+            ".pdf" => Empieza(b, (byte)'%', (byte)'P', (byte)'D', (byte)'F'),
+            ".webp" => Empieza(b, (byte)'R', (byte)'I', (byte)'F', (byte)'F') && b.AsSpan(8, 4).SequenceEqual("WEBP"u8),
+            _ => false
         };
     }
 

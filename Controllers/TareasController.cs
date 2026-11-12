@@ -57,6 +57,14 @@ public class TareasController : ControllerBase
         return Ok(tarea);
     }
 
+    // PATCH /api/v1/tareas/{id}/mover — cambia de columna y/o de posición (arrastrar y soltar)
+    [HttpPatch("api/v1/tareas/{id}/mover")]
+    public async Task<IActionResult> Mover(int id, MoverTareaDto dto)
+    {
+        var tarea = await _tareaService.MoverAsync(id, dto, User.GetUsuarioId());
+        return Ok(tarea);
+    }
+
     // DELETE /api/v1/tareas/{id}
     [HttpDelete("api/v1/tareas/{id}")]
     public async Task<IActionResult> Eliminar(int id)

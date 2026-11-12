@@ -9,6 +9,9 @@ public class Tarea
     public PrioridadTarea Prioridad { get; set; } = PrioridadTarea.Media;
     public DateTime? FechaVencimiento { get; set; }
 
+    // Posición dentro de su columna (menor = más arriba).
+    public int Orden { get; set; }
+
     public int ProyectoId { get; set; }
     public Proyecto Proyecto { get; set; } = null!;
 
@@ -17,4 +20,6 @@ public class Tarea
 
     public ICollection<Comentario> Comentarios { get; set; } = new List<Comentario>();
     public ICollection<Adjunto> Adjuntos { get; set; } = new List<Adjunto>();
+    public ICollection<ItemChecklist> Checklist { get; set; } = new List<ItemChecklist>();
+    public ICollection<Etiqueta> Etiquetas { get; set; } = new List<Etiqueta>();
 }

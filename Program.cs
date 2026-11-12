@@ -6,52 +6,16 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
-using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Configuration
-    .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
-    .AddJsonFile($"appsettings.{builder.Environment.EnvironmentName}.json", optional: true)
-    .AddEnvironmentVariables();
+// ---------- Base de datos (solo PostgreSQL) ----------
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+if (string.IsNullOrWhiteSpace(connectionString))
+    throw new InvalidOperationException("Falta ConnectionStrings:DefaultConnection.");
 
-// ---------- Base de datos ----------
-var logger = builder.Services.BuildServiceProvider().GetRequiredService<ILogger<Program>>();
-
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection") 
-    ?? Environment.GetEnvironmentVariable("ConnectionStrings__DefaultConnection");
-
-// Log para debug
-logger.LogInformation("Connection String detected: {conn}", connectionString?.Substring(0, Math.Min(connectionString.Length, 20)) + "...");
-
-if (!string.IsNullOrEmpty(connectionString) && connectionString.StartsWith("postgres://"))
-{
-    var uri = new Uri(connectionString);
-    var userInfo = uri.UserInfo.Split(':');
-    connectionString = $"Host={uri.Host};Port={uri.Port};Username={userInfo[0]};Password={userInfo[1]};Database={uri.LocalPath.TrimStart('/')};Pooling=true;SSL Mode=Require;Trust Server Certificate=True;";
-}
-
-// Fallback inteligente: si no hay variable de entorno, detecta LocalDB automáticamente
-var dbProvider = builder.Configuration["DB_PROVIDER"] 
-    ?? (connectionString?.Contains("(localdb)", StringComparison.OrdinalIgnoreCase) == true ? "SQLSERVER" : "POSTGRES");
-
-logger.LogInformation("DB_PROVIDER configured as: {provider}", dbProvider);
-
-builder.Services.AddDbContext<ApplicationDbContext>(options =>
-{
-    if (dbProvider.Equals("POSTGRES", StringComparison.OrdinalIgnoreCase))
-    {
-        options.UseNpgsql(connectionString);
-    }
-    else if (dbProvider.Equals("SQLSERVER", StringComparison.OrdinalIgnoreCase))
-    {
-        options.UseSqlServer(connectionString);
-    }
-    else
-    {
-        throw new InvalidOperationException($"DB_PROVIDER '{dbProvider}' is not supported. Use POSTGRES or SQLSERVER.");
-    }
-});
+builder.Services.AddDbContext<ApplicationDbContext>(o => o.UseNpgsql(connectionString));
 
 // ---------- Servicios propios ----------
 builder.Services.AddScoped<IAuthService, AuthService>();
@@ -60,7 +24,7 @@ builder.Services.AddScoped<IProyectoService, ProyectoService>();
 builder.Services.AddScoped<ITareaService, TareaService>();
 builder.Services.AddScoped<IComentarioService, ComentarioService>();
 builder.Services.AddScoped<IAdjuntoService, AdjuntoService>();
-builder.Services.AddAutoMapper(AppDomain.CurrentDomain.GetAssemblies());
+builder.Services.AddScoped<ExtrasService>();
 
 // ---------- Controllers ----------
 builder.Services.AddControllers()
@@ -69,21 +33,11 @@ builder.Services.AddControllers()
         options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
     });
 
-builder.Services.Configure<ForwardedHeadersOptions>(options =>
-{
-    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
-});
-
 // ---------- JWT Authentication ----------
 var jwtSection = builder.Configuration.GetSection("Jwt");
-var jwtSecret = Environment.GetEnvironmentVariable("JWT_SECRET") ?? jwtSection["Secret"];
-
-// Validación defensiva: garantiza mínimo 32 bytes (256 bits) para HMAC-SHA256
+var jwtSecret = jwtSection["Secret"];
 if (string.IsNullOrWhiteSpace(jwtSecret) || Encoding.UTF8.GetBytes(jwtSecret).Length < 32)
-{
-    jwtSecret = "DESARROLLO_SECRET_KEY_CON_MAS_DE_32_CARACTERES_123456789";
-    logger.LogWarning("JWT Secret inválido o ausente. Usando clave de desarrollo por defecto.");
-}
+    throw new InvalidOperationException("Jwt:Secret es obligatorio y debe tener al menos 32 bytes (variable Jwt__Secret).");
 
 builder.Services.AddAuthentication(options =>
 {
@@ -106,6 +60,15 @@ builder.Services.AddAuthentication(options =>
 });
 
 builder.Services.AddAuthorization();
+
+// Límite de intentos en login/registro/refresh: 10 por minuto y por IP.
+builder.Services.AddRateLimiter(o =>
+{
+    o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    o.AddPolicy("auth", ctx => System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter(
+        ctx.Connection.RemoteIpAddress?.ToString() ?? "?",
+        _ => new System.Threading.RateLimiting.FixedWindowRateLimiterOptions { PermitLimit = builder.Configuration.GetValue("RateLimit:Auth:Permit", 10), Window = TimeSpan.FromMinutes(1) }));
+});
 
 // ---------- CORS ----------
 var corsOrigins = builder.Configuration.GetSection("CORS:AllowedOrigins").Get<string[]>()
@@ -154,64 +117,27 @@ builder.Services.AddHealthChecks();
 
 var app = builder.Build();
 
-app.UseForwardedHeaders();
 app.UseCors("AllowSpecificOrigins");
 
-// Aplicar migraciones si la variable está activa (para producción en Render)
-var runMigrations = Environment.GetEnvironmentVariable("RUN_MIGRATIONS");
-if (runMigrations == "true")
-{
-    using (var scope = app.Services.CreateScope())
-    {
-        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-        db.Database.Migrate();
-    }
-}
-
-// ---------- Swagger ----------
-app.UseSwagger();
-app.UseSwaggerUI(c =>
-{
-    c.SwaggerEndpoint("/swagger/v1/swagger.json", "Gestor de Tareas API v1");
-    c.RoutePrefix = "swagger";
-});
-
-// ---------- Migraciones + seed automáticos en Development ----------
-// ---------- Migraciones + seed automáticos en Development ----------
+// Proyecto solo de desarrollo: Swagger, migraciones y datos demo únicamente en Development.
 if (app.Environment.IsDevelopment())
 {
+    app.UseSwagger();
+    app.UseSwaggerUI(c =>
+    {
+        c.SwaggerEndpoint("/swagger/v1/swagger.json", "Gestor de Tareas API v1");
+        c.RoutePrefix = "swagger";
+    });
+
     using var scope = app.Services.CreateScope();
-    var services = scope.ServiceProvider;
-    var db = services.GetRequiredService<ApplicationDbContext>();
-    var seedLogger = services.GetRequiredService<ILogger<Program>>();
-    
-    try
-    {
-        seedLogger.LogInformation("Aplicando migraciones...");
-        Console.WriteLine("[SEED-HOST] Aplicando migraciones...");
-        db.Database.Migrate();
-        
-        seedLogger.LogInformation("Migraciones aplicadas. Ejecutando seed...");
-        Console.WriteLine("[SEED-HOST] Migraciones aplicadas. Ejecutando SeedData.Seed()...");
-        
-        SeedData.Seed(db);
-        
-        seedLogger.LogInformation("Seed completado correctamente.");
-        Console.WriteLine("[SEED-HOST] Seed completado correctamente.");
-    }
-    catch (Exception ex)
-    {
-        seedLogger.LogError(ex, "Error crítico al aplicar migraciones/seed");
-        Console.WriteLine($"[SEED-HOST ERROR] {ex.GetType().Name}: {ex.Message}");
-        Console.WriteLine(ex.StackTrace);
-        if (ex.InnerException != null)
-            Console.WriteLine($"[SEED-HOST ERROR INNER] {ex.InnerException.GetType().Name}: {ex.InnerException.Message}");
-        throw;
-    }
+    var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+    db.Database.Migrate();
+    SeedData.Seed(db);
 }
 
 app.UseMiddleware<ExceptionMiddleware>();
 app.UseHttpsRedirection();
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -219,3 +145,5 @@ app.MapControllers();
 app.MapHealthChecks("/health");
 
 app.Run();
+
+public partial class Program { } // visible para las pruebas de integración

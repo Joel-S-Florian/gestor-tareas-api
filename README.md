@@ -1,175 +1,175 @@
-# Gestor de Tareas — API (backend)
+# Gestor de Tareas — API
 
-API REST para la aplicación **Gestor de Proyectos y Tareas** (Capstone). Expone la lógica de negocio y los datos del
-proyecto completo: autenticación JWT con refresh tokens, gestión de proyectos con roles (Owner/Editor/Viewer),
-tareas tipo Kanban, comentarios, adjuntos y colaboración entre usuarios.
+API REST de un gestor de proyectos y tareas tipo Trello: proyectos con roles (Owner / Editor / Viewer), tablero Kanban con orden propio, comentarios, adjuntos, avisos de asignación y autenticación JWT con refresh token en cookie HttpOnly.
 
-## Estado actual
+Es una de las dos repos del proyecto; el cliente está en [gestor-tareas-spa](https://github.com/Joel-S-Florian/gestor-tareas-spa). **Es un proyecto solo para ejecutar en local** (ver [ADR 003](docs/decisiones/003-sin-despliegue.md)): no tiene configuración de despliegue, y Swagger, las migraciones automáticas y los datos de demostración solo funcionan en Development.
 
-- ✅ **Hito 1** — Modelo de datos (3FN), migraciones EF Core y autenticación (register / login / refresh / logout).
-- ✅ **Hito 2** — CRUD de Proyectos y Tareas con autorización por ownership y rol + Swagger.
-- ✅ **Hito 4** — Comentarios, adjuntos (máx. 5 MB, MIME validado) y gestión de miembros (invitar/remover/cambiar rol).
-- ✅ **Extras** — `GET/PUT /auth/perfil` para la pantalla de perfil del SPA.
-- ⬜ **Hito 5** — Despliegue en la nube (pendiente).
+| Tablero | Dashboard |
+|---|---|
+| ![Tablero Kanban del proyecto Rediseño Web](docs/img/tablero.jpg) | ![Dashboard con distribución de tareas](docs/img/dashboard.jpg) |
 
 ## Tecnologías
 
-- .NET 8 (ASP.NET Core Web API)
-- Entity Framework Core (Code First + migraciones) — SQL Server LocalDB en dev
-- JWT Bearer + refresh tokens con rotación y revocación (almacenados en BD)
-- Swashbuckle (Swagger con botón **Authorize**)
-- `JsonStringEnumConverter`: los enums se serializan como strings (`"ToDo"`, `"Owner"`, `"Media"`)
-- Error handling global con `ProblemDetails` (RFC 7807): las excepciones de dominio se mapean a 404/403/409/401 y el 500 nunca filtra stack traces
-- Logging estructurado con `ILogger<T>` en todos los servicios
-- Health check en `/health`
+ASP.NET Core 8 (Web API) · Entity Framework Core 8 (Code First) · **PostgreSQL** (Npgsql) · JWT Bearer · Swagger · xUnit + `WebApplicationFactory`.
+
+## Ejecutarlo en local
+
+Requiere .NET SDK 8+ y PostgreSQL 14+.
+
+```bash
+# 1. Crear la base (ajusta usuario/clave en appsettings.Development.json si tu PostgreSQL los exige)
+psql -U postgres -c "CREATE DATABASE gestor_tareas_dev"
+
+# 2. Arrancar: en Development aplica las migraciones y siembra los datos de demostración
+dotnet run --launch-profile GestorTareas.Api
+```
+
+La API queda en `https://localhost:52411` (Swagger en `/swagger`, salud en `/health`). El SPA la consume a través del proxy de Vite; ver su README.
+
+### Configuración
+
+| Clave (variable de entorno) | Uso |
+|---|---|
+| `ConnectionStrings__DefaultConnection` | Cadena de PostgreSQL. Obligatoria. |
+| `Jwt__Secret` | Secreto de al menos 32 bytes. **Obligatorio: sin él la API no arranca.** El de desarrollo está en `appsettings.Development.json`. |
+| `Auth__CookieSameSite` | `Lax` (por defecto), `Strict` o `None`. Ver [ADR 002](docs/decisiones/002-sesion-con-cookie-httponly.md). |
+| `RateLimit__Auth__Permit` | Intentos por minuto y por IP en login/registro/refresh (10 por defecto). |
+| `UploadsPath` | Carpeta de adjuntos (por defecto `Uploads`). |
+| `CORS__AllowedOrigins` | Orígenes permitidos si el SPA no usa el proxy. |
+
+## Usuarios de demostración (solo en Development)
+
+Se siembran únicamente en desarrollo. No existen en ningún otro entorno.
+
+| Email | Contraseña | Rol en Rediseño Web / App Móvil / Marketing Q3 |
+|---|---|---|
+| demo@demo.com | demo123 | Owner / Editor / Viewer |
+| ana@demo.com | ana123 | Editor / Owner / — |
+| luis@demo.com | luis123 | Viewer / — / Owner |
+| joel@demo.com | joel123 | Editor / Editor / Viewer |
+
+## Pruebas
+
+```bash
+dotnet test GestorTareas.Tests/GestorTareas.Tests.csproj
+```
+
+**63 pruebas de integración** que levantan la API real contra PostgreSQL (una base `gt_test_*` por ejecución). Usan `GT_TEST_PG` para apuntar a otro servidor (por defecto `Host=localhost;Username=postgres`). Cubren:
+
+- **Matriz de roles:** Owner / Editor / Viewer × lectura, edición, tareas, comentarios, miembros y borrado; acceso de quien no es miembro y de quien no tiene token.
+- **Sesión:** cookie HttpOnly, rotación del refresh token, detección de reuso, logout, límite de intentos y que el login "demo" fijo que existía ya no entra.
+- **Adjuntos:** tipo, tamaño (5 MB), rol y comprobación de los primeros bytes del archivo.
+- **Tablero:** orden dentro de la columna, mover entre columnas, filtro de vencidas, avisos de asignación y su privacidad.
+- **Actividad, lista de pasos, etiquetas y menciones:** qué queda en la bitácora (y qué no), permisos por rol, topes, etiquetas de otro proyecto y avisos solo a miembros.
+
+La integración continua (GitHub Actions, `.github/workflows/ci.yml`) ejecuta las mismas pruebas con un servicio PostgreSQL 16.
 
 ## Endpoints (`/api/v1`)
 
 | Método | Ruta | Descripción | Acceso |
 |---|---|---|---|
-| POST | `/auth/register` | Crear cuenta | Público |
-| POST | `/auth/login` | Login → access + refresh token | Público |
-| POST | `/auth/refresh` | Renovar access token | Público |
-| POST | `/auth/logout` | Invalidar refresh token | Público |
-| GET | `/auth/perfil` | Ver perfil propio | Autenticado |
-| PUT | `/auth/perfil` | Editar nombre/email | Autenticado |
-| GET | `/proyectos` | Listar proyectos del usuario (propios y compartidos) | Autenticado |
-| GET | `/proyectos/{id}` | Detalle (si el usuario tiene acceso) | Autenticado |
-| POST | `/proyectos` | Crear (creador = Owner) | Autenticado |
-| PUT | `/proyectos/{id}` | Modificar (Owner/Editor) | Autenticado |
-| DELETE | `/proyectos/{id}` | Eliminar (solo Owner; falla si tiene tareas) | Autenticado |
-| GET | `/proyectos/{id}/miembros` | Listar miembros | Autenticado |
-| POST | `/proyectos/{id}/miembros` | Invitar por email | Owner |
-| PUT | `/proyectos/{id}/miembros/{userId}/rol` | Cambiar rol | Owner |
-| DELETE | `/proyectos/{id}/miembros/{userId}` | Remover miembro | Owner |
-| GET | `/proyectos/{id}/tareas?estado=&prioridad=&asignadoAId=&page=&pageSize=` | Listar tareas paginado + filtros | Autenticado |
-| POST | `/proyectos/{id}/tareas` | Crear tarea | Owner/Editor |
-| GET | `/tareas/{id}` | Detalle (incluye comentarios y adjuntos) | Autenticado |
-| PUT | `/tareas/{id}` | Modificar | Owner/Editor |
-| PATCH | `/tareas/{id}/estado` | Cambiar estado (drag-and-drop Kanban) | Owner/Editor |
-| DELETE | `/tareas/{id}` | Eliminar | Owner/Editor |
-| POST | `/tareas/{id}/comentarios` | Agregar comentario | Autenticado |
-| DELETE | `/comentarios/{id}` | Eliminar (solo autor) | Autor |
-| POST | `/tareas/{id}/adjuntos` | Subir adjunto (multipart) | Owner/Editor |
-| GET | `/adjuntos/{id}` | Descargar | Autenticado |
-| DELETE | `/adjuntos/{id}` | Eliminar | Owner/Editor |
-| GET | `/health` | Health check | Público |
+| POST | `/auth/register` | Crear cuenta (fija la cookie de sesión) | Público, limitado por IP |
+| POST | `/auth/login` | Devuelve el access token y fija la cookie | Público, limitado por IP |
+| POST | `/auth/refresh` | Renueva el access token con la cookie y la rota | Cookie |
+| POST | `/auth/logout` | Revoca el refresh token y borra la cookie | Cookie |
+| GET / PUT | `/auth/perfil` | Ver / editar el perfil propio | Autenticado |
+| GET / POST | `/proyectos` | Listar los míos / crear (el creador es Owner) | Autenticado |
+| GET / PUT / DELETE | `/proyectos/{id}` | Detalle / editar (Owner, Editor) / eliminar (Owner, sin tareas) | Miembro |
+| GET / POST | `/proyectos/{id}/miembros` | Listar / invitar por email | Miembro / Owner |
+| PUT / DELETE | `/proyectos/{id}/miembros/{userId}[/rol]` | Cambiar rol / remover | Owner |
+| GET | `/proyectos/{id}/tareas` | Paginado con `estado`, `prioridad`, `asignadoAId`, `vencidas`, `page`, `pageSize` (máx. 100) | Miembro |
+| POST | `/proyectos/{id}/tareas` | Crear (al final de “Por hacer”) | Owner, Editor |
+| GET / PUT / DELETE | `/tareas/{id}` | Detalle con comentarios y adjuntos / editar / eliminar | Miembro / Owner, Editor |
+| PATCH | `/tareas/{id}/estado` | Cambiar de columna (queda al final) | Owner, Editor |
+| PATCH | `/tareas/{id}/mover` | Cambiar de columna y de posición (arrastrar y soltar) | Owner, Editor |
+| POST / DELETE | `/tareas/{id}/comentarios`, `/comentarios/{id}` | Comentar / borrar el propio | Miembro / Autor |
+| POST / GET / DELETE | `/tareas/{id}/adjuntos`, `/adjuntos/{id}` | Subir (5 MB; imagen o PDF) / descargar / eliminar | Owner, Editor / Miembro |
+| GET | `/proyectos/{id}/actividad`, `/tareas/{id}/actividad` | Bitácora (últimos 100 movimientos) | Miembro |
+| POST / PATCH / DELETE | `/tareas/{id}/checklist`, `/checklist/{itemId}` | Lista de pasos de la tarea (máx. 50) | Owner, Editor |
+| GET / POST | `/proyectos/{id}/etiquetas` | Listar / crear etiquetas del proyecto (máx. 30, nombre único) | Miembro / Owner, Editor |
+| DELETE | `/etiquetas/{id}` | Borrar una etiqueta (se quita de las tareas) | Owner, Editor |
+| PUT | `/tareas/{id}/etiquetas` | Reemplazar las etiquetas de la tarea (máx. 10, del mismo proyecto) | Owner, Editor |
+| GET | `/notificaciones` | Mis avisos (últimos 30 y no leídos) | Autenticado |
+| POST | `/notificaciones/{id}/leida`, `/notificaciones/leer-todas` | Marcar leídos | Autenticado |
+| GET | `/health` | Estado | Público |
 
-## Usuarios de prueba (seed)
-
-| Email | Password | Rol en Proyectos |
-| --- | --- | --- |
-| demo@demo.com | demo123 | Owner (Rediseño Web), Editor (App Móvil), Viewer (Marketing Q3) |
-| ana@demo.com | ana123 | Owner (App Móvil), Editor (Rediseño Web) |
-| luis@demo.com | luis123 | Owner (Marketing Q3), Viewer (Rediseño Web) |
-| joel@demo.com | joel123 | Editor (Rediseño Web, App Móvil), Viewer (Marketing Q3) |
-
-## Cómo ejecutarlo localmente
-
-1. Requiere .NET SDK 8+ y SQL Server LocalDB (con Visual Studio viene incluido).
-2. Abrir una terminal en `Backend/gestor-tareas-api`:
-   ```
-   dotnet restore
-   dotnet ef database update
-   dotnet run
-   ```
-   > En Development, `Program.cs` ejecuta `Migrate()` + seed automáticamente al arrancar.
-3. Abrir Swagger en `https://localhost:52411/swagger` (revisa el puerto en `Properties/launchSettings.json`).
-4. Configuración por variables de entorno:
-   - `ConnectionStrings__DefaultConnection` — conexión a SQL Server / PostgreSQL.
-   - `Jwt__Secret` — secreto de mínimo 32 caracteres (¡nunca en el repo en producción!).
-   - `SpaOrigin` — origen permitido por CORS (default `http://localhost:5173`).
-   - `UploadsPath` — carpeta local de adjuntos (default `Uploads`).
+Errores como `ProblemDetails` (RFC 7807): 400 validación, 401 sin sesión, 403 sin permiso, 404, 409 conflicto de regla, 429 demasiados intentos.
 
 ## Reglas de negocio
 
-- Un usuario solo ve/edita proyectos donde es propietario o miembro.
-- `Owner`: permisos totales (incl. miembros y eliminar proyecto).
-- `Editor`: crea/modifica/elimina tareas, no gestiona miembros.
-- `Viewer`: solo lectura.
-- Un comentario lo elimina únicamente su autor.
-- No se puede eliminar un proyecto que tenga tareas asociadas.
-- Adjuntos: máximo 5 MB y MIME válido (imágenes y PDF).
-- Contraseñas guardadas únicamente como hash (`PasswordHasher` de ASP.NET Core Identity).
+- Solo se ve y edita un proyecto donde se es miembro. Owner: todo; Editor: tareas, no miembros ni borrar el proyecto; Viewer: solo lectura (puede comentar).
+- No se elimina un proyecto con tareas, ni se remueve ni cambia el rol del propietario.
+- Una tarea solo se asigna a un miembro del proyecto; asignarla avisa a esa persona (no a quien se la asigna a sí mismo).
+- **Menciones:** `@ana` en un comentario avisa a la persona cuyo email empieza por `ana@`, solo si es miembro del proyecto y nunca al autor; un email escrito en el texto (`juan@ana.com`) no cuenta.
+- **Actividad:** se registra crear, editar, mover de columna, asignar, comentar, adjuntar, etiquetar, completar la lista y eliminar. No se registra reordenar dentro de la columna, editar sin cambios ni marcar pasos sueltos.
+- Adjuntos: máximo 5 MB; extensión, `Content-Type` y primeros bytes del archivo deben coincidir (JPEG, PNG, GIF, WebP, PDF).
+- Contraseñas con el hasher de ASP.NET Core Identity; refresh tokens guardados solo como hash.
 
-## Diagrama Entidad-Relación
+## Arquitectura
+
+```mermaid
+flowchart LR
+    SPA[SPA React<br/>access token en memoria] -->|/api/v1 + cookie HttpOnly| C[Controllers]
+    C --> S[Services<br/>reglas de negocio y permisos]
+    S --> D[(PostgreSQL<br/>EF Core)]
+    C -.-> M[ExceptionMiddleware<br/>ProblemDetails]
+```
+
+Los controladores son delgados; los permisos por rol están centralizados en `ProyectoService.ObtenerRolEnProyectoAsync` y se reutilizan en tareas, comentarios y adjuntos.
 
 ```mermaid
 erDiagram
-    USUARIO ||--o{ REFRESHTOKEN : "posee"
+    USUARIO ||--o{ REFRESHTOKEN : posee
     USUARIO ||--o{ PROYECTO : "es propietario de"
     USUARIO ||--o{ MIEMBROPROYECTO : "colabora en"
-    PROYECTO ||--o{ MIEMBROPROYECTO : "tiene"
-    PROYECTO ||--o{ TAREA : "contiene"
+    PROYECTO ||--o{ MIEMBROPROYECTO : tiene
+    PROYECTO ||--o{ TAREA : contiene
     USUARIO ||--o{ TAREA : "tiene asignada"
-    TAREA ||--o{ COMENTARIO : "recibe"
-    USUARIO ||--o{ COMENTARIO : "escribe"
-    TAREA ||--o{ ADJUNTO : "adjunta"
+    TAREA ||--o{ COMENTARIO : recibe
+    USUARIO ||--o{ COMENTARIO : escribe
+    TAREA ||--o{ ADJUNTO : adjunta
+    USUARIO ||--o{ NOTIFICACION : recibe
 
-    USUARIO {
-        int Id PK
-        string Nombre
-        string Email UK
-        string PasswordHash
-        datetime FechaRegistro
-    }
-    PROYECTO {
-        int Id PK
-        string Nombre
-        string Descripcion
-        string Color
-        datetime FechaCreacion
-        int PropietarioId FK
-    }
-    MIEMBROPROYECTO {
-        int ProyectoId PK,FK
-        int UsuarioId PK,FK
-        enum Rol "(Owner/Editor/Viewer)"
-        datetime FechaIngreso
-    }
     TAREA {
         int Id PK
         string Titulo
-        string Descripcion
-        enum Estado "(ToDo/InProgress/Done)"
-        enum Prioridad "(Baja/Media/Alta)"
+        enum Estado "ToDo/InProgress/Done"
+        enum Prioridad "Baja/Media/Alta"
         datetime FechaVencimiento
-        int ProyectoId FK
-        int AsignadoAId FK
+        int Orden "posicion en la columna"
     }
-    COMENTARIO {
-        int Id PK
-        int TareaId FK
-        int UsuarioId FK
-        string Contenido
-        datetime FechaCreacion
-    }
-    ADJUNTO {
-        int Id PK
-        int TareaId FK
-        string NombreArchivo
-        string RutaRelativa
-        long TamanoBytes
-        datetime FechaSubida
+    MIEMBROPROYECTO {
+        int ProyectoId PK
+        int UsuarioId PK
+        enum Rol "Owner/Editor/Viewer"
     }
     REFRESHTOKEN {
-        int Id PK
-        string Token UK
-        int UsuarioId FK
-        datetime FechaExpiracion
+        string Token "hash SHA-256"
         bool Revocado
+    }
+    NOTIFICACION {
+        int UsuarioId FK
+        string Mensaje
+        bool Leida
     }
 ```
 
-## Estructura
+## Decisiones de diseño
 
-```
-Controllers/      Auth, Proyectos, Tareas, Comentarios, Adjuntos
-Services/         Lógica de negocio (interfaces + implementaciones) + excepciones de dominio
-Models/           Entidades EF Core (Usuarios, Proyectos, Tareas, Comentarios, Adjuntos, RefreshTokens)
-DTOs/             DTOs de entrada/salida (nunca se exponen entidades EF)
-Data/             DbContext (Fluent API) + SeedData
-Middleware/       ExceptionMiddleware → ProblemDetails
-Migrations/       Migraciones versionadas de EF Core
-Extensions/       ClaimsPrincipalExtensions (obtener id de usuario del token)
-```
+| ADR | Resumen |
+|---|---|
+| [001](docs/decisiones/001-solo-postgresql.md) | PostgreSQL como única base de datos |
+| [002](docs/decisiones/002-sesion-con-cookie-httponly.md) | Access token en memoria, refresh en cookie HttpOnly con hash y detección de reuso |
+| [003](docs/decisiones/003-sin-despliegue.md) | El proyecto no se despliega |
+| [004](docs/decisiones/004-pruebas-con-postgresql-real.md) | Pruebas de integración con la API real y PostgreSQL real |
+| [005](docs/decisiones/005-actividad-menciones-checklist-etiquetas.md) | Actividad como mensajes ya redactados, menciones por email, lista de pasos y etiquetas por proyecto |
+
+El historial de la reconstrucción está en [docs/PLAN_MEJORAS.md](docs/PLAN_MEJORAS.md).
+
+## Límites conocidos
+
+- Sin confirmación de correo ni recuperación de contraseña: cualquiera puede registrarse con cualquier email.
+- Los adjuntos se guardan en disco local, no en un almacén de objetos; en un entorno con disco efímero se perderían.
+- Dos pestañas que renuevan la sesión en el mismo instante pueden disparar la detección de reuso y cerrar la sesión.
+- Sin tiempo real: los avisos se consultan cada minuto desde el SPA.
+- Los commits antiguos del historial contienen el login fijo y un secreto de desarrollo ya retirados; no son secretos reales.

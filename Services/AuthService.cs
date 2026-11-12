@@ -40,58 +40,6 @@ public class AuthService : IAuthService
 
     public async Task<AuthResponseDto> LoginAsync(LoginDto dto)
     {
-        // 1. Verificar credenciales fijas
-        if (dto.Email == "joel@demo.com" && dto.Password == "Demo1234!")
-        {
-            try
-            {
-                var user = await _db.Usuarios.FirstOrDefaultAsync(u => u.Email == dto.Email);
-                if (user == null)
-                {
-                    // Crear usuario si no existe
-                    user = new Usuario
-                    {
-                        Email = dto.Email,
-                        Nombre = "Joel Pérez",
-                        FechaRegistro = DateTime.UtcNow
-                    };
-                    user.PasswordHash = _hasher.HashPassword(user, dto.Password);
-
-                    _db.Usuarios.Add(user);
-                    await _db.SaveChangesAsync();
-
-                    _logger.LogInformation("Usuario demo {Email} creado automáticamente (id {UsuarioId})", user.Email, user.Id);
-                }
-
-                _logger.LogInformation("Usuario demo {Email} inició sesión con base de datos", user.Email);
-                return await GenerarRespuestaAsync(user);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error al autenticar o crear el usuario demo en la base de datos. Aplicando fallback de simulación.");
-
-                // FALLBACK: Generar token simulado sin usar la base de datos
-                var simulatedUser = new Usuario
-                {
-                    Id = 9999,
-                    Email = "joel@demo.com",
-                    Nombre = "Joel Pérez (Demo Fallback)"
-                };
-
-                var (accessToken, expira) = _tokenService.GenerarAccessToken(simulatedUser);
-                var refreshToken = "SIMULATED_REFRESH_TOKEN_" + Guid.NewGuid().ToString("N");
-
-                return new AuthResponseDto
-                {
-                    AccessToken = accessToken,
-                    RefreshToken = refreshToken,
-                    AccessTokenExpira = expira,
-                    Usuario = new UsuarioDto { Id = simulatedUser.Id, Nombre = simulatedUser.Nombre, Email = simulatedUser.Email }
-                };
-            }
-        }
-
-        // 2. Si no son las credenciales fijas, intentar login normal
         var usuario = await _db.Usuarios.FirstOrDefaultAsync(u => u.Email == dto.Email);
         if (usuario == null)
         {
@@ -113,11 +61,25 @@ public class AuthService : IAuthService
 
     public async Task<AuthResponseDto> RefreshAsync(string refreshToken)
     {
+        var hash = TokenService.Hash(refreshToken);
         var tokenGuardado = await _db.RefreshTokens
             .Include(r => r.Usuario)
-            .FirstOrDefaultAsync(r => r.Token == refreshToken);
+            .FirstOrDefaultAsync(r => r.Token == hash);
 
-        if (tokenGuardado == null || !tokenGuardado.EstaActivo)
+        if (tokenGuardado == null)
+            throw new AuthException("Refresh token inválido o expirado.");
+
+        // Un token ya rotado que vuelve a presentarse indica robo: se cierran todas las sesiones del usuario.
+        if (tokenGuardado.Revocado)
+        {
+            await _db.RefreshTokens
+                .Where(r => r.UsuarioId == tokenGuardado.UsuarioId && !r.Revocado)
+                .ExecuteUpdateAsync(s => s.SetProperty(r => r.Revocado, true));
+            _logger.LogWarning("Reuso de refresh token revocado: sesiones del usuario {UsuarioId} cerradas", tokenGuardado.UsuarioId);
+            throw new AuthException("Refresh token inválido o expirado.");
+        }
+
+        if (!tokenGuardado.EstaActivo)
             throw new AuthException("Refresh token inválido o expirado.");
 
         // Rotación: se revoca el usado y se emite uno nuevo (mitiga el robo de tokens).
@@ -131,7 +93,8 @@ public class AuthService : IAuthService
 
     public async Task LogoutAsync(string refreshToken)
     {
-        var tokenGuardado = await _db.RefreshTokens.FirstOrDefaultAsync(r => r.Token == refreshToken);
+        var hash = TokenService.Hash(refreshToken);
+        var tokenGuardado = await _db.RefreshTokens.FirstOrDefaultAsync(r => r.Token == hash);
         if (tokenGuardado == null) return;
 
         tokenGuardado.Revocado = true;
@@ -172,7 +135,7 @@ public class AuthService : IAuthService
 
         _db.RefreshTokens.Add(new RefreshToken
         {
-            Token = refreshToken,
+            Token = TokenService.Hash(refreshToken),
             UsuarioId = usuario.Id,
             FechaExpiracion = DateTime.UtcNow.AddDays(_refreshDias)
         });
